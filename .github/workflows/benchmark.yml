@@ -1,0 +1,68 @@
+name: Benchmark
+
+# Runs the interpreter benchmark on a GitHub-hosted runner, on demand from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many times to run the benchmark, to see the variation between runs"
+        required: true
+        default: "3"
+
+jobs:
+  benchmark:
+    name: Interpreter benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # gradlew is not executable in git, since it was added on Windows.
+      - run: chmod +x gradlew
+
+      - name: Describe the runner
+        run: |
+          {
+            echo "## Runner"
+            echo
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Core'
+            free -h | head -2
+            uname -srm
+            java -version 2>&1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --rerun makes Gradle run the tests again instead of reusing a cached result.
+      - name: Run the benchmark
+        run: |
+          for run in $(seq 1 "${{ inputs.runs }}"); do
+            ./gradlew :fast-compose:jvmTest --tests "*InterpreterBenchmarkTest*" --rerun -i > "gradle-$run.log"
+            {
+              echo "### Run $run"
+              grep "benchmark " "gradle-$run.log" | sed 's/^ *//'
+              echo
+            } >> benchmark.txt
+          done
+          {
+            echo "## Results"
+            echo
+            echo '```'
+            cat benchmark.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: benchmark.txt
+          retention-days: 90

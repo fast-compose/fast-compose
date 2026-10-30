@@ -1,0 +1,8 @@
+# Findings to ignore, one per line, exactly as the report prints them.
+# Use it for differences that are intentional, e.g. a binding that merges two Compose overloads.
+
+# Resource functions take Android's `id` and Compose Multiplatform's `resource`; the AndroidX files only have `id`.
+painterResource(id, *, resource): unknown parameter 'resource'
+vectorResource(id, *, resource): unknown parameter 'resource'
+imageResource(id, *, resource): unknown parameter 'resource'
+stringResource(id, vararg formatArgs, *, resource): unknown parameter 'resource'

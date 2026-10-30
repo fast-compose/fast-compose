@@ -1,0 +1,28 @@
+# APIs left out of the coverage numbers: platform-only, low-level or debugging APIs that previews do not need.
+# One name per line: `Name` for any API with that name, or `Owner.name` for a member, e.g. `ButtonDefaults.MinWidth`.
+
+# Android-only
+AndroidView
+AndroidExternalSurface
+AndroidEmbeddedExternalSurface
+
+# Compose runtime and layout internals
+ComposeNode
+ReusableComposeNode
+ReusableContent
+ReusableContentHost
+LazyLayout
+LazyLayoutPinnableItem
+InterceptPlatformTextInput
+SubcomposeLayout
+LookaheadScope
+
+# Vector image internals
+Group
+Path
+RenderVectorGroup
+
+# Debugging and sound
+LookaheadAnimationVisualDebugging
+CustomizedLookaheadAnimationVisualDebugging
+SoundEffectOnInteraction

@@ -1,0 +1,134 @@
+name: Build & Release Fast Compose
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- Tests and demo build, for pull requests and release tags ----
+  check:
+    name: Tests and demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # gradlew is not executable in git, since it was added on Windows.
+      - run: chmod +x gradlew
+
+      # Parser, interpreter, bindings and preview tests, plus the binding check against the Compose API files.
+      - name: Run tests
+        run: ./gradlew jvmTest --stacktrace
+
+      # Compiles the demo apps without packaging them.
+      - name: Build demo
+        run: ./gradlew :app:desktop:compileKotlin :app:web:compileKotlinWasmJs :app:android:assembleDebug --stacktrace
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/
+            **/build/test-results/
+          retention-days: 7
+
+  # ---- iOS: the libraries' iOS targets compile only on macOS ----
+  ios:
+    name: iOS libraries
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # gradlew is not executable in git, since it was added on Windows.
+      - run: chmod +x gradlew
+
+      - name: Compile iOS
+        run: ./gradlew compileKotlinIosArm64 compileKotlinIosSimulatorArm64 --stacktrace
+
+  # ---- Release: GitHub release and Maven Central, for tags like v0.1.0 ----
+  # Runs on macOS, so the iOS artifacts are published with the others.
+  release:
+    name: Release and publish
+    runs-on: macos-latest
+    needs: [check, ios]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # The tag must match the library version, so v0.1.0 publishes 0.1.0.
+      - name: Check tag matches version
+        run: |
+          version=$(grep '^project-versionName' gradle/libs.versions.toml | cut -d'"' -f2)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match project-versionName $version"
+            exit 1
+          fi
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # gradlew is not executable in git, since it was added on Windows.
+      - run: chmod +x gradlew
+
+      - name: Publish to Maven Central
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+      # Created after publishing, so a release only exists for versions that are on Maven Central.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Fast Compose ${{ github.ref_name }}"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maven-publish-reports
+          path: |
+            **/build/reports/
+            **/build/test-results/
+          retention-days: 7

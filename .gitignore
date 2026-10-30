@@ -1,0 +1,41 @@
+# Gradle and Kotlin
+.gradle/
+.kotlin/
+**/build/
+!src/**/build/
+out/
+
+# Local configuration
+local.properties
+.env
+
+# IDEs
+.idea/
+*.iml
+.fleet/
+.vscode/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Android
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Signing keys
+*.jks
+*.keystore
+
+# Web (kotlin-js-store/ holds the yarn lock files and stays committed)
+node_modules/
+
+# Logs and dumps
+*.log
+*.hprof
+
+# OS files
+.DS_Store
+Thumbs.db

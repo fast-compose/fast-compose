@@ -1,0 +1,4 @@
+# Binding parameters that are declared but not read on purpose. Format: Binding.parameter
+detectTapGestures.onPress        # needs PressGestureScope (tryAwaitRelease)
+semantics.properties             # accessibility only, not shown in previews
+clearAndSetSemantics.properties  # accessibility only, not shown in previews
