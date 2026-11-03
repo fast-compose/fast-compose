@@ -17,6 +17,8 @@ FastComposePreview(code)
 fun interface SourceProvider {
     suspend fun find(packageName: String, name: String): SourceFile?
     suspend fun isProjectPackage(packageName: String): Boolean = true
+    suspend fun findExpect(packageName: String, name: String): SourceFile? = null
+    suspend fun findLibrary(packageName: String, name: String): SourceFile? = null
 }
 ```
 
@@ -26,6 +28,10 @@ fun interface SourceProvider {
   imported from library packages are never looked up and never reported as missing. By default every package counts
   as the project's, except the libraries in `SourceLoader.DEFAULT_LIBRARY_PACKAGES` (`androidx`, `kotlin`,
   `kotlinx`, `java`, `org.jetbrains.compose`, Coil, …).
+- `findExpect` returns the file with the `expect` declaration of `name` when `find` gave its `actual`, so calls get
+  the default arguments written on the `expect`.
+- `findLibrary` returns the file declaring `name` in a library package without bindings, e.g. from the library's
+  sources jar. A miss is not reported; the name runs as library code or a stand-in.
 
 ## Project folders
 
@@ -63,11 +69,13 @@ declarations it reaches. Each name a declaration uses but does not declare is lo
 Found files are parsed and searched the same way, until no new declaration is reached.
 
 - **Members after a `.`:** extension functions and properties such as `card` in `Modifier.card()` are looked up
-  when the file imports them explicitly.
+  in explicit imports, the file's own package and star imports. A name that no file declares is a member and is not
+  reported.
 - **Member imports:** `import app.Settings.isDark` or `import app.Mode.DARK` is looked up through the class or
   object that declares the member, by Kotlin's naming conventions (the first capitalized segment).
 - **Resources:** `Res` and `R` are never looked up; the resource bindings provide them, whatever their package.
-- **Libraries:** names from library packages come from bindings.
+- **Libraries:** names from library packages come from bindings, or on the JVM from the library's jars (see
+  [Library code on the JVM](LIBRARY.md#library-code-on-the-jvm)).
 - **Caching:** files are cached by path and text. A file with parse errors keeps its last version without errors.
 - **Reloading:** `ComposeCode.reloadSources()` loads the files again, e.g. after another file changed.
 - `ComposeCode.dependencies` holds the loaded files.
@@ -84,7 +92,8 @@ Only the previewed file's `@Preview` functions are shown.
   declaration uses them. Warnings for other files carry their path in `LogLine.file`.
 - Parse errors and runtime errors in other files are logged with their file, e.g. `ProfileCard.kt:12: …`.
   `LogLine.file` and `RuntimeError.file` hold the path; they are null for the previewed file.
-- A name imported from a package with no binding runs as a stand-in, with one warning naming its package:
+- A name imported from a package with no binding, and not found in library code, runs as a stand-in, with one
+  warning naming its package:
   `'getTimeMillis' (io.ktor.util.date) has no binding; a stand-in is used, so the preview may differ`. Names that
   are not imported stay unresolved errors.
 
