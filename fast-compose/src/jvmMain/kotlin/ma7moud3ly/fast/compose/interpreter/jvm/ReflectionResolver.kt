@@ -44,7 +44,7 @@ internal class ReflectionResolver(
         val prefix = if (packageName.isEmpty()) "" else "$packageName."
         val facades = packageClasses(packageName).filter { it.endsWith("Kt") }.mapNotNull { loadClass(prefix + it) }
         val functions = facades.flatMap { facade -> facade.methods.filter { Modifier.isStatic(it.modifiers) && sameName(it, name) } }
-        if (functions.isNotEmpty()) return FunctionSymbol(functions, static = true)
+        if (functions.isNotEmpty()) return functionSymbol(functions, static = true)
         val getter = getterName(name)
         val property = facades.firstNotNullOfOrNull { facade ->
             facade.methods.firstOrNull { Modifier.isStatic(it.modifiers) && it.name == getter && it.parameterCount == 0 }
@@ -56,7 +56,7 @@ internal class ReflectionResolver(
         if (receiver is StaticScope) {
             val type = receiver.type
             val methods = type.methods.filter { Modifier.isStatic(it.modifiers) && sameName(it, name) }
-            if (methods.isNotEmpty()) return FunctionSymbol(methods, static = true)
+            if (methods.isNotEmpty()) return functionSymbol(methods, static = true)
             val field = type.fields.firstOrNull { Modifier.isStatic(it.modifiers) && it.name == name } ?: return null
             return PropertySymbol { field.get(null) }
         }
@@ -70,12 +70,18 @@ internal class ReflectionResolver(
                     FunctionSymbol(methods, static = false).call(receiver, positional, named)
             }
         }
-        if (methods.isNotEmpty()) return FunctionSymbol(methods, static = false)
+        if (methods.isNotEmpty()) return functionSymbol(methods, static = false)
         val getter = getterName(name)
         val javaGetter = type.methods.firstOrNull { (it.name == getter || it.name == "is${name.capitalized()}") && it.parameterCount == 0 }
         if (javaGetter != null) return PropertySymbol { invoke(javaGetter, it, emptyArray()) }
         val field = type.fields.firstOrNull { it.name == name } ?: return null
         return PropertySymbol { field.get(it) }
+    }
+
+    /** Plain functions, or composables when the overloads are compiled composables (see [ComposableSymbol]). */
+    private fun functionSymbol(methods: List<Method>, static: Boolean): ExternalSymbol {
+        val composables = methods.filter(::isComposable)
+        return if (composables.isNotEmpty()) ComposableSymbol(composables, static) else FunctionSymbol(methods, static)
     }
 
     private fun loadClass(name: String): Class<*>? = try {

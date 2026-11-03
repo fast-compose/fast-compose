@@ -62,6 +62,8 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             // Kotlin reflection for JarResolver: parameter names, default arguments and extension receivers.
             implementation(kotlin("reflect"))
+            // Kotlin metadata for library composables: parameter names and defaults before the Compose compiler's changes.
+            implementation(libs.kotlin.metadata.jvm)
         }
         jsMain.dependencies {
             implementation(libs.ktor.client.js)

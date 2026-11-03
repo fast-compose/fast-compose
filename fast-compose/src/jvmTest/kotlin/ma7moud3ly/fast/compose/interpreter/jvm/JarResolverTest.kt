@@ -3,7 +3,13 @@ package ma7moud3ly.fast.compose.interpreter.jvm
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.interpreter.RuntimeError
+import androidx.compose.runtime.AbstractApplier
+import androidx.compose.runtime.Composition
+import androidx.compose.runtime.Recomposer
+import kotlinx.coroutines.test.runTest
+import ma7moud3ly.fast.compose.bindings.foundation.FoundationBindings
 import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Money
+import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Recorded
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import java.io.File
 import kotlin.test.Test
@@ -48,6 +54,53 @@ class JarResolverTest {
             )
         }
         assertEquals(emptyList(), problems)
+    }
+
+    @Test
+    fun runsLibraryComposables() = runTest {
+        val code = """
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Greeting
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Card
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Lane
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Swatch
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Counter
+
+            @Composable
+            fun Screen() {
+                Card("box") {
+                    Greeting("Ana")
+                    Greeting(name = "Bo", punctuation = "?")
+                }
+                Lane { mark("x") }
+                Swatch(Color.Red)
+                Counter { n -> println("count " + n) }
+            }
+        """.trimIndent()
+        Recorded.lines.clear()
+        val problems = mutableListOf<RuntimeError>()
+        val logs = mutableListOf<String>()
+        val registry = Registry().apply { install(FoundationBindings) }
+        JarResolver(listOf(classes)).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val interpreter = Interpreter(program, registry, onError = { problems += it }, onLog = { logs += it }, externals = resolver)
+            val recomposer = Recomposer(coroutineContext)
+            val composition = Composition(object : AbstractApplier<Unit>(Unit) {
+                override fun insertTopDown(index: Int, instance: Unit) = Unit
+                override fun insertBottomUp(index: Int, instance: Unit) = Unit
+                override fun remove(index: Int, count: Int) = Unit
+                override fun move(from: Int, to: Int, count: Int) = Unit
+                override fun onClear() = Unit
+            }, recomposer)
+            try {
+                composition.setContent { interpreter.Render(program.functions.single()) }
+            } finally {
+                composition.dispose()
+                recomposer.cancel()
+            }
+        }
+        assertEquals(emptyList(), problems)
+        assertEquals(listOf("[box]", "Hello Ana!", "Hello Bo?", "lane x", "swatch true 4.0.dp"), Recorded.lines)
+        assertEquals(listOf("count 3"), logs)
     }
 
     @Test

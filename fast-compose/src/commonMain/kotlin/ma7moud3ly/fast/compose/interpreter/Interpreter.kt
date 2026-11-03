@@ -57,6 +57,9 @@ internal sealed interface Target {
     class Plain(val call: () -> Any?) : Target
     class Done(val value: Any?) : Target
     class Suspend(val call: suspend () -> Any?) : Target
+
+    /** A composable from library code, through the host's [ExternalResolver]; [receiver] for a member or extension. */
+    class ExternalComposable(val symbol: ExternalSymbol, val receiver: Any?) : Target
 }
 
 /**
@@ -838,6 +841,10 @@ public class Interpreter(
             args,
             env
         )?.let { return it }
+        // Members of a library scope, e.g. a call inside `LibraryRow { … }` whose receiver comes from library code.
+        if (externals != null) {
+            for (receiver in env.receivers) externalMemberTarget(receiver, name, args, env, imported = false)?.let { return it }
+        }
         resolveFunction(name, args, extension = false, env.file)?.let {
             return Target.UserFunction(
                 it,
@@ -873,7 +880,9 @@ public class Interpreter(
         val value = builtins.global(name, args)
         if (value !== Unresolved) return Target.Done(value)
         env.file.memberImports[name]?.let { import -> importedMemberCall(import, args, env)?.let { return it } }
-        importedExternal(name, env.file)?.let { symbol -> return Target.Plain { externalCall(symbol, null, args, name) } }
+        importedExternal(name, env.file)?.let { symbol ->
+            return if (symbol.isComposable) Target.ExternalComposable(symbol, null) else Target.Plain { externalCall(symbol, null, args, name) }
+        }
         importedStandIn(name, env.file)?.let { return Target.Done(it) }
         unknownStandIn(name)?.let { return Target.Done(it) }
         return null
@@ -1053,6 +1062,7 @@ public class Interpreter(
         is Target.Value -> invokeValue(target.fn, args)
         is Target.Intrinsic -> intrinsic(target, args)
         is Target.Suspend -> throw suspendFromPlain(name)
+        is Target.ExternalComposable -> throw composableFromPlain(name)
     }
 
     @Composable
@@ -1095,6 +1105,10 @@ public class Interpreter(
 
             is Target.Intrinsic -> intrinsicC(target, args)
             is Target.Suspend -> showIfError(fail(suspendFromPlain(name).message ?: name))
+            is Target.ExternalComposable -> when (val content = externalComposable(target.symbol, target.receiver, args, name)) {
+                null -> StandIn(name)
+                else -> content()
+            }
             else -> showIfError(fail("Cannot call '$name'"))
         }
 
@@ -1346,13 +1360,17 @@ public class Interpreter(
         value !is LambdaValue && value !is FunctionRef && value !is MemberRef && value !is ClassRef &&
         value !is ComposableSlot && value !is PrecomputedLambda
 
-    /** A member call on a value from library code, or an extension function the file imports from a library. */
-    private fun externalMemberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
+    /**
+     * A member call on a value from library code, or (when [imported]) an extension function the file imports from a
+     * library. Calls on implicit receivers look up members only.
+     */
+    private fun externalMemberTarget(receiver: Any?, name: String, args: CallArgs, env: Env, imported: Boolean = true): Target? {
         val resolver = externals ?: return null
         if (receiver == null || !isForeign(receiver)) return null
-        val symbol = importedExternal(name, env.file)
+        val symbol = (if (imported) importedExternal(name, env.file) else null)
             ?: externalLookup(name) { resolver.member(receiver, name) }
             ?: return null
+        if (symbol.isComposable) return Target.ExternalComposable(symbol, receiver)
         return Target.Plain { externalCall(symbol, receiver, args, name) }
     }
 
@@ -1382,6 +1400,31 @@ public class Interpreter(
         val positional = (args.positional + listOfNotNull(args.trailing)).map(::toExternal)
         val named = args.named.mapValues { toExternal(it.value) }
         return externalRun(name) { symbol.call(receiver, positional, named) }
+    }
+
+    /**
+     * Prepares a library composable's call: its content to run in composition, or null after reporting why the
+     * arguments don't fit. Lambdas are passed as [InterpretedLambda]s, which the host makes composable where needed.
+     */
+    private fun externalComposable(symbol: ExternalSymbol, receiver: Any?, args: CallArgs, name: String): (@Composable () -> Unit)? {
+        val positional = (args.positional + listOfNotNull(args.trailing)).map(::toInterpretedLambda)
+        val named = args.named.mapValues { toInterpretedLambda(it.value) }
+        return try {
+            symbol.composable(receiver, positional, named)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: InterpreterException) {
+            throw e
+        } catch (e: Throwable) {
+            report("'$name' can't run from library code: ${e.message ?: e::class.simpleName}")
+            null
+        }
+    }
+
+    private fun toInterpretedLambda(value: Any?): Any? = when (value) {
+        is LambdaValue -> InterpretedLambda(this, value, value.lambda.params.size, value.lambda.usesIt())
+        is FunctionRef -> InterpretedLambda(this, value, value.decl.params.size, usesIt = false)
+        else -> value
     }
 
     /** Runs library code; a failure is reported where it happened and the result is a stand-in. */
