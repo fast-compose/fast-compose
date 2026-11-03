@@ -246,7 +246,10 @@ CompositionLocalProvider(LocalExternalResolver provides libraries) {
 
 It finds classes and objects, a package's top-level functions and properties, and members of the values library code
 returns, with named and default arguments. Library composables run too, with their default arguments, value class
-parameters (`Color`, `Dp`) and content lambdas written in the preview. Kotlin, coroutines, Compose and the JDK always
+parameters (`Color`, `Dp`) and content lambdas written in the preview. Imported members (`import a.Settings.isDark`)
+work, and a name imported from a library wins over a binding of the same name, as in Kotlin. Project objects passed
+to a library interface parameter (`class FakeSettings : Settings`) are forwarded to their own members, and to the
+interface's default methods for the rest. Kotlin, coroutines, Compose and the JDK always
 come from the app, so values pass freely between library code and bindings; libraries need a Compose version the app
 can link, and Android-only code doesn't run on the desktop. Any other host can plug in its own `ExternalResolver`;
 without one (the web, iOS) library APIs stay stand-ins.

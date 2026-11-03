@@ -44,3 +44,9 @@ fun Swatch(color: Color, size: Dp = 4.dp) {
 fun Counter(onCount: (Int) -> Unit) {
     SideEffect { onCount(3) }
 }
+
+/** Shares its name with the `Box` binding: imported from here, this one runs. */
+@Composable
+fun Box(label: String) {
+    Recorded.lines += "box $label"
+}

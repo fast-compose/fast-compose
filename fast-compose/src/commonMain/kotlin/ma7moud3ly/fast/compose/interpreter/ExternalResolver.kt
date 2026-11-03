@@ -73,5 +73,32 @@ public class InterpretedLambda internal constructor(
     public fun compose(receiver: Any?, args: List<Any?>): Any? = interpreter.invokeComposable(fn, receiver ?: NoReceiver, args)
 }
 
+/**
+ * An object of interpreted code passed to library code, e.g. an instance of a project's `class FakeSettings :
+ * Settings`. [value] is the object itself, for parameters it fits as is. For an interface it can't implement, a host
+ * may pass an implementation that forwards to its members: [call], [read] and [write]. Errors are reported, not
+ * thrown.
+ */
+public class InterpretedObject internal constructor(private val interpreter: Interpreter, private val obj: UserValue) {
+    public val value: Any get() = obj
+
+    /** True when its class (or a project supertype) declares a function [name]. */
+    public fun hasFunction(name: String): Boolean = interpreter.objectHasFunction(obj, name)
+
+    /** Calls its function [name] with [args]. */
+    public fun call(name: String, args: List<Any?>): Any? = interpreter.objectCall(obj, name, args)
+
+    /** True when it has a property [name]. */
+    public fun hasProperty(name: String): Boolean = interpreter.objectHasProperty(obj, name)
+
+    /** Its property [name]. */
+    public fun read(name: String): Any? = interpreter.objectRead(obj, name)
+
+    /** Sets its property [name]. */
+    public fun write(name: String, value: Any?): Unit = interpreter.objectWrite(obj, name, value)
+
+    override fun toString(): String = obj.toString()
+}
+
 /** The [ExternalResolver] previews use; null runs library names as stand-ins. Hosts provide one around previews. */
 public val LocalExternalResolver: ProvidableCompositionLocal<ExternalResolver?> = staticCompositionLocalOf { null }

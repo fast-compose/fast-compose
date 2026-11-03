@@ -64,6 +64,7 @@ class JarResolverTest {
             import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Lane
             import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Swatch
             import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Counter
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Box
 
             @Composable
             fun Screen() {
@@ -74,6 +75,7 @@ class JarResolverTest {
                 Lane { mark("x") }
                 Swatch(Color.Red)
                 Counter { n -> println("count " + n) }
+                Box("own")
             }
         """.trimIndent()
         Recorded.lines.clear()
@@ -99,7 +101,7 @@ class JarResolverTest {
             }
         }
         assertEquals(emptyList(), problems)
-        assertEquals(listOf("[box]", "Hello Ana!", "Hello Bo?", "lane x", "swatch true 4.0.dp"), Recorded.lines)
+        assertEquals(listOf("[box]", "Hello Ana!", "Hello Bo?", "lane x", "swatch true 4.0.dp", "box own"), Recorded.lines)
         assertEquals(listOf("count 3"), logs)
     }
 
@@ -126,6 +128,46 @@ class JarResolverTest {
             val result = Interpreter(program, Registry(), onError = { problems += it }, externals = resolver).call("test")
             assertEquals(emptyList(), problems)
             assertEquals(listOf("m2", true, true, 4L), result)
+        }
+    }
+
+    @Test
+    fun membersImportedFromLibraries() {
+        val code = """
+            import java.time.LocalDate.of as dateOf
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Formats.label
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Money
+
+            fun test() = listOf(dateOf(2025, 1, 15).toString(), label(Money(3)))
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        JarResolver(listOf(classes)).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val result = Interpreter(program, Registry(), onError = { problems += it }, externals = resolver).call("test")
+            assertEquals(emptyList(), problems)
+            assertEquals(listOf("2025-01-15", "$3"), result)
+        }
+    }
+
+    @Test
+    fun projectObjectsImplementLibraryInterfaces() {
+        val code = """
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Store
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.readAll
+
+            class MapStore(private val map: Map<String, String>) : Store {
+                override val size: Int get() = map.size
+                override fun get(key: String): String? = map[key]
+            }
+
+            fun test() = readAll(MapStore(mapOf("a" to "1")), listOf("a", "b"))
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        JarResolver(listOf(classes)).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val result = Interpreter(program, Registry(), onError = { problems += it }, externals = resolver).call("test")
+            assertEquals(emptyList(), problems)
+            assertEquals("1,- / 1 entries", result)
         }
     }
 

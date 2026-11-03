@@ -1,7 +1,9 @@
 package ma7moud3ly.fast.compose.interpreter.jvm
 
+import androidx.compose.runtime.Composable
 import ma7moud3ly.fast.compose.interpreter.ExternalResolver
 import ma7moud3ly.fast.compose.interpreter.ExternalSymbol
+import ma7moud3ly.fast.compose.interpreter.InterpretedObject
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -64,7 +66,7 @@ internal class ReflectionResolver(
         if (receiver is StaticScope) {
             val type = receiver.type
             val methods = type.methods.filter { Modifier.isStatic(it.modifiers) && sameName(it, name) }
-            if (methods.isNotEmpty()) return functionSymbol(methods, static = true)
+            if (methods.isNotEmpty()) return WithoutReceiver(functionSymbol(methods, static = true))
             val field = type.fields.firstOrNull { Modifier.isStatic(it.modifiers) && it.name == name } ?: return null
             return PropertySymbol { field.get(null) }
         }
@@ -210,6 +212,15 @@ internal class ReflectionResolver(
         }
     }
 
+    /** [symbol] used without a receiver: a static member, whose [StaticScope] is not an argument. */
+    private class WithoutReceiver(private val symbol: ExternalSymbol) : ExternalSymbol {
+        override val isComposable: Boolean get() = symbol.isComposable
+        override fun read(receiver: Any?): Any? = symbol.read(null)
+        override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? = symbol.call(null, positional, named)
+        override fun composable(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): @Composable () -> Unit =
+            symbol.composable(null, positional, named)
+    }
+
     private class PropertySymbol(private val get: (Any?) -> Any?) : ExternalSymbol {
         override fun read(receiver: Any?): Any? = get(receiver)
         override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? =
@@ -271,10 +282,13 @@ internal class ReflectionResolver(
             type.getField(name).takeIf { Modifier.isStatic(it.modifiers) }?.get(null)
         }.getOrNull()
 
-        /** [value] for a Kotlin parameter: numbers widened or narrowed to its type, lists as arrays for varargs. */
+        /**
+         * [value] for a Kotlin parameter: numbers widened or narrowed to its type, lists as arrays for varargs, and
+         * interpreted objects as themselves or as implementations of the parameter's interface.
+         */
         fun convert(value: Any?, parameter: KParameter): Any? {
             if (value == null) return null
-            val classifier = parameter.type.classifier as? KClass<*> ?: return value
+            val classifier = parameter.type.classifier as? KClass<*> ?: return fromInterpreted(value, Any::class.java)
             val type = classifier.java
             if (value is List<*> && type.isArray) {
                 val component = type.componentType
@@ -302,6 +316,7 @@ internal class ReflectionResolver(
         }
 
         fun convertTo(value: Any, type: Class<*>): Any? = when {
+            value is InterpretedObject -> fromInterpreted(value, type)
             type.isInstance(value) -> value
             value is Number && type == Long::class.javaObjectType -> value.toLong()
             value is Number && type == Int::class.javaObjectType -> value.toInt()

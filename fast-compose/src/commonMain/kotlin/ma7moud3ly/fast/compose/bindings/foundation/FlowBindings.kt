@@ -1,7 +1,14 @@
 package ma7moud3ly.fast.compose.bindings.foundation
 
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -27,11 +34,16 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.supervisorScope
 import ma7moud3ly.fast.compose.interpreter.Registry
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
 
 /** `Dispatchers.Default`, `Main`, `IO` and `Unconfined`. */
@@ -127,6 +139,15 @@ internal fun Registry.flowExtras() {
             flow.stateIn(scope, a.typed("started", SharingStarted.Eagerly), a["initialValue"])
         }
     }
+    member<Flow<*>>("shareIn(scope, started, replay)") { flow, a ->
+        val scope = a.typedOrNull<CoroutineScope>("scope")
+        if (scope == null) {
+            a.warn("shareIn needs a CoroutineScope; the flow emits nothing")
+            MutableSharedFlow<Any?>()
+        } else {
+            flow.shareIn(scope, a.typed("started", SharingStarted.Eagerly), a.int("replay", 0))
+        }
+    }
     suspendMember<Flow<*>>("collectLatest(action)") { flow, a ->
         val action = a.suspendAction1("action")
         flow.collectLatest { action(it) }
@@ -153,8 +174,47 @@ internal fun Registry.flowExtras() {
     suspendFunction("withContext(context, block)") { a -> coroutineScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
     suspendFunction("coroutineScope(block)") { a -> coroutineScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
     suspendFunction("supervisorScope(block)") { a -> supervisorScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
+    jobs()
 
     paging()
+}
+
+/**
+ * Jobs, scopes and contexts: `Job()`, `SupervisorJob()`, `CoroutineScope(context)`, `context + context`,
+ * `NonCancellable`, `scope.async { }` with `await()`, and `suspendCancellableCoroutine` with its continuation's
+ * `resume`, `resumeWithException`, `invokeOnCancellation` and `cancel`.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun Registry.jobs() {
+    type<CoroutineContext>("CoroutineContext")
+    member<CoroutineContext>("plus(context)") { context, a -> context + a.typed<CoroutineContext>("context", EmptyCoroutineContext) }
+    function("Job(parent)") { a -> Job(a.typedOrNull<Job>("parent")) }
+    function("SupervisorJob(parent)") { a -> SupervisorJob(a.typedOrNull<Job>("parent")) }
+    function("CoroutineScope(context)") { a -> CoroutineScope(a.typed<CoroutineContext>("context", EmptyCoroutineContext)) }
+    value("NonCancellable", NonCancellable)
+
+    type<Deferred<*>>("Deferred")
+    member<CoroutineScope>("async(block)") { scope, a ->
+        val block = a.suspendCalculation<CoroutineScope>("block")
+        scope.async { block() }
+    }
+    suspendMember<Deferred<*>>("await()") { deferred, _ -> deferred.await() }
+
+    type<CancellableContinuation<*>>("CancellableContinuation")
+    suspendFunction("suspendCancellableCoroutine(block)") { a ->
+        val block = a.action1("block")
+        suspendCancellableCoroutine<Any?> { continuation -> block(continuation) }
+    }
+    member<CancellableContinuation<*>>("resume(value)") { c, a -> (c as CancellableContinuation<Any?>).resume(a["value"]) }
+    member<CancellableContinuation<*>>("resumeWithException(exception)") { c, a ->
+        c.resumeWithException(a.typed<Throwable>("exception", IllegalStateException()))
+    }
+    member<CancellableContinuation<*>>("invokeOnCancellation(handler)") { c, a ->
+        val handler = a.action1("handler")
+        c.invokeOnCancellation { handler(it) }
+    }
+    member<CancellableContinuation<*>>("cancel(cause)") { c, a -> c.cancel(a.typedOrNull<Throwable>("cause")) }
+    properties<CancellableContinuation<*>>("isActive" to { it.isActive }, "isCancelled" to { it.isCancelled })
 }
 
 private fun Registry.paging() {

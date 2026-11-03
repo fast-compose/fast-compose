@@ -233,6 +233,43 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun jobsScopesAndContinuations() = runTest {
+        val problems = mutableListOf<RuntimeError>()
+        val code = """
+            suspend fun test(): List<Any?> {
+                val answer = coroutineScope { async { 40 + 2 }.await() }
+                val resumed = suspendCancellableCoroutine { continuation -> continuation.resume("done") }
+                val job = SupervisorJob()
+                job.cancel()
+                val scope = CoroutineScope(Job() + Dispatchers.Default)
+                val calm = withContext(NonCancellable) { "nc" }
+                return listOf(answer, resumed, job.isActive, scope is CoroutineScope, calm)
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        val result = Interpreter(program, registry, onError = { problems += it }).callSuspend("test")
+        assertEquals(emptyList(), problems)
+        assertEquals(listOf(42, "done", false, true, "nc"), result)
+    }
+
+    @Test
+    fun clickAndSizeModifiersWithOptions() {
+        val code = """
+            fun test() = listOf(
+                Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = {},
+                    indication = null,
+                    interactionSource = MutableInteractionSource(),
+                ) != Modifier,
+                Modifier.animateContentSize(spring()) != Modifier,
+                Modifier.animateContentSize(finishedListener = { initial, target -> }) != Modifier,
+            )
+        """
+        assertEquals(listOf(true, true, true), runClean(code))
+    }
+
+    @Test
     fun scopeModifiersOutsideTheirScopeAreLeftOut() {
         val problems = mutableListOf<RuntimeError>()
         val code = "fun test() = Modifier.weight(1f).align(Alignment.Center) == Modifier"

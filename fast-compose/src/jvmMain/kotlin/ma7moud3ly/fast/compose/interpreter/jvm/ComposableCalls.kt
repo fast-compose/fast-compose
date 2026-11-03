@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composer
 import androidx.compose.runtime.currentComposer
 import ma7moud3ly.fast.compose.interpreter.ExternalSymbol
 import ma7moud3ly.fast.compose.interpreter.InterpretedLambda
+import ma7moud3ly.fast.compose.interpreter.InterpretedObject
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
@@ -113,6 +114,7 @@ internal class ComposableSymbol(private val methods: List<Method>, private val s
         fun adapt(value: Any?, type: Class<*>, parameter: KmValueParameter?): Any? {
             if (value == null) return if (type.isPrimitive) NoFit else null
             if (value is InterpretedLambda) return lambda(value, type, parameter) ?: NoFit
+            if (value is InterpretedObject) return fromInterpreted(value, type) ?: NoFit
             val boxed = boxed(type)
             if (boxed.isInstance(value)) return value
             unboxValueClass(value)?.let { raw -> if (boxed.isInstance(raw)) return raw else convertNumber(raw, boxed)?.let { return it } }

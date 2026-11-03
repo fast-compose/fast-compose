@@ -20,3 +20,12 @@ fun Money.doubled(): Money = copy(amount = amount * 2)
 fun total(vararg values: Int): Int = values.sum()
 
 fun mapEach(values: List<Int>, transform: (Int) -> Int): List<Int> = values.map(transform)
+
+/** A library interface that project code implements, with a default method. */
+interface Store {
+    val size: Int
+    fun get(key: String): String?
+    fun describe(): String = "$size entries"
+}
+
+fun readAll(store: Store, keys: List<String>): String = keys.joinToString(",") { store.get(it) ?: "-" } + " / " + store.describe()
