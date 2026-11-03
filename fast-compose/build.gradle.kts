@@ -60,6 +60,8 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // Kotlin reflection for JarResolver: parameter names, default arguments and extension receivers.
+            implementation(kotlin("reflect"))
         }
         jsMain.dependencies {
             implementation(libs.ktor.client.js)
