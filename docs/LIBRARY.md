@@ -27,6 +27,7 @@ bindings.
 - [Multiple files](#multiple-files)
 - [Library code on the JVM](#library-code-on-the-jvm)
 - [Crashes while drawing](#crashes-while-drawing)
+- [Version](#version)
 
 ## ComposeCode
 
@@ -270,3 +271,19 @@ fun main() = application {
     }
 }
 ```
+
+## Version
+
+`FastComposeInfo` holds the library's version and the versions it is built with, e.g. for a CLI's `--version` or a
+bug report:
+
+```kotlin
+FastComposeInfo.VERSION            
+FastComposeInfo.VERSION_CODE       
+FastComposeInfo.KOTLIN_VERSION     // Kotlin
+FastComposeInfo.COMPOSE_VERSION    // Compose Multiplatform
+FastComposeInfo.MATERIAL3_VERSION  // Compose Multiplatform Material 3
+FastComposeInfo.COROUTINES_VERSION // kotlinx.coroutines
+```
+
+They are generated from `gradle/libs.versions.toml` at build time.
