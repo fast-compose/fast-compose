@@ -4,7 +4,7 @@
 
 # Fast Compose
 
-**Instant Jetpack Compose. No compiler, no build, no waiting.**
+**An instant runtime for Jetpack Compose code. No compiler, no build, no waiting.**
 
 Write Compose code, see it render in milliseconds, on Android, iOS, desktop and the web.
 
@@ -123,7 +123,9 @@ flowchart LR
     B --> C["Syntax tree"]
     C --> D["Interpreter<br/>runs inside composition"]
     D --> E["Bindings<br/>Text, Column, Button, …"]
+    D --> G["Library code<br/>JVM, through reflection"]
     E --> F["Real Jetpack Compose<br/>real pixels"]
+    G --> F
 ```
 
 1. **Parse.** A hand-written Kotlin lexer and parser turn the source into a syntax tree. It is pure Kotlin
@@ -133,6 +135,9 @@ flowchart LR
    recomposition, effects and coroutines are the real Compose runtime, not a simulation.
 3. **Bind.** When the code calls `Text(...)` or `Modifier.padding(...)`, a binding calls the real Compose API with
    the evaluated arguments. What you see is exactly what Compose draws.
+4. **Library code.** On the JVM (the IDE plugin, desktop), APIs without a binding run from the project's library jars
+   through reflection, including library composables. Elsewhere, and for anything not found, a stand-in keeps the rest
+   of the screen rendering, with a warning.
 
 There is no code generation, no bytecode and no server. Edits re-render after a 150 ms typing pause; parsing runs in
 the background, and only the changed program is interpreted again.
@@ -208,7 +213,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for requirements, running the demo app,
 
 | Document | About |
 |---|---|
-| [docs/LIBRARY.md](docs/LIBRARY.md) | Every composable and option of the library |
+| [docs/LIBRARY.md](docs/LIBRARY.md) | Every composable and option of the library, and library code on the JVM |
 | [docs/BINDINGS.md](docs/BINDINGS.md) | Writing bindings and packs, network images, the binding check |
 | [docs/RESOURCES.md](docs/RESOURCES.md) | Images and strings from `R`/`Res`, and where their files come from |
 | [docs/MULTIPLE_FILES.md](docs/MULTIPLE_FILES.md) | Previews that use other files of a project |

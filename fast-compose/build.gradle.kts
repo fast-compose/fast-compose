@@ -9,7 +9,7 @@ plugins {
     alias(libs.plugins.vanniktech.maven.publish)
 }
 
-description = "Instant Jetpack Compose previews without compilation: renders Kotlin Compose code at runtime with FastComposePreview and BasicComposePreview"
+description = "An instant runtime for Jetpack Compose code. No compiler, no build, no waiting."
 
 val javaVersion = libs.versions.java.version.get()
 val projectPackageName = libs.versions.project.packageName.get()

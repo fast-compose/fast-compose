@@ -3,7 +3,7 @@
 Fast Compose can only call Compose APIs that have a binding. This page shows how much of the Compose API is bound and
 how that is measured.
 
-Numbers are for version 0.1.0, checked against the Jetpack Compose 1.12 API (Compose Multiplatform 1.12.2 is based on
+Numbers are for version 0.2.0, checked against the Jetpack Compose 1.12 API (Compose Multiplatform 1.12.2 is based on
 1.12.1) and the latest Material 3 API (1.5.0-alpha22 in use).
 
 ## What it can run
@@ -23,9 +23,9 @@ No imports are needed: bound APIs work without `import` lines.
 
 Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it:
 
-- **Only bound APIs.** Code can call the APIs that have bindings, plus anything declared in the code itself.
-  Libraries such as ViewModel, Hilt or Room are not available unless you add bindings for them. An imported library
-  API without a binding runs as a stand-in, with a warning: calls and members on it give stand-ins, conditions on
+- **Only bound APIs.** Code can call the APIs that have bindings, plus anything declared in the code itself. On the
+  JVM, hosts with a `JarResolver` also run the project's real library code, including library composables (see
+  [Library code on the JVM](LIBRARY.md#library-code-on-the-jvm)). Elsewhere, an imported library API without a binding runs as a stand-in, with a warning: calls and members on it give stand-ins, conditions on
   it are false, loops over it are empty, it shows as empty text, and components use their defaults instead. So the
   screen around it still renders. A library class called with named arguments keeps them, so `Theme(background = …).background`
   reads back. A library container still shows its content lambda. ViewModel factories (`viewModel()`,
@@ -37,7 +37,7 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
   empty list), with a warning, so sample data still builds.
 - **Platform APIs.** Previews report `Build.VERSION.SDK_INT` 30 (so dynamic colors stay off), and set
   `LocalInspectionMode` to `true`. `Integer`, `Locale`, `kotlin.time.Clock`, `Random`, `Regex` and `StringBuilder`
-  work; `Context`, `View` and `java.time` run as stand-ins. The lifecycle is always resumed, and window size
+  work; `Context` and `View` run as stand-ins, and `java.time` too unless the host runs library code on the JVM. The lifecycle is always resumed, and window size
   classes come from the preview frame's size. Paging data built from lists (`PagingData.from`) shows as loaded. Rounded, Sharp and TwoTone icons show
   the Filled icon of the same name.
 - **Types are not checked.** Type annotations are parsed and used for overloads and `is` checks, but a wrong type is
@@ -51,10 +51,10 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 
 | Category | Covered | |
 |---|---|---|
-| Composables | 109 of 181 | 60% |
-| Modifiers | 69 of 179 | 38% |
-| `remember*` functions | 14 of 51 | 27% |
-| Members of `*Defaults` objects | 17 of 683 | 2% |
+| Composables | 112 of 181 | 61% |
+| Modifiers | 78 of 179 | 43% |
+| `remember*` functions | 18 of 51 | 35% |
+| Members of `*Defaults` objects | 33 of 683 | 4% |
 
 ## By library
 
@@ -67,21 +67,20 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 | foundation | 14 of 16 (87%) | `BasicSecureTextField`, `BasicTooltipBox` |
 | foundation-layout | 7 of 9 (77%) | `FlexBox`, `Grid` |
 | animation | 3 of 5 (60%) | `SharedTransitionLayout`, `SharedTransitionScope` |
-| material3 | 78 of 144 (54%) | See below |
+| material3 | 81 of 144 (56%) | See below |
 
 Most of the Material 3 composables without a binding are new Material 3 Expressive components, still in alpha:
 button groups, toggle buttons, loading indicators, carousels, floating toolbars and flexible app bars. Common
-components not covered yet are `SwipeToDismissBox`, `PullToRefreshBox`, `TimePicker`, `DateRangePicker`,
-`BasicAlertDialog` and `SecureTextField`.
+components not covered yet are `SwipeToDismissBox`, `TimePicker`, `DateRangePicker` and `SecureTextField`.
 
 ### Modifiers
 
 | Library | Covered |
 |---|---|
-| foundation-layout | 30 of 59 (50%) |
-| foundation | 16 of 41 (39%) |
-| ui | 19 of 53 (35%) |
-| material3 | 3 of 17 (17%) |
+| foundation-layout | 32 of 59 (54%) |
+| ui | 24 of 53 (45%) |
+| foundation | 17 of 41 (41%) |
+| material3 | 4 of 17 (23%) |
 | animation | 1 of 9 (11%) |
 
 The common layout, drawing, gesture, scrolling and graphics modifiers are covered. Not covered yet are mostly focus,
@@ -93,8 +92,8 @@ drag and drop, shared elements, `anchoredDraggable` and `basicMarquee`.
 |---|---|
 | runtime | 3 of 6 (50%) |
 | animation-core | 1 of 2 (50%) |
-| foundation | 6 of 17 (35%) |
-| material3 | 4 of 21 (19%) |
+| foundation | 7 of 17 (41%) |
+| material3 | 7 of 21 (33%) |
 | animation, ui | 0 of 5 |
 
 ### Defaults
