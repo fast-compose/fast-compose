@@ -15,6 +15,9 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandIn
@@ -32,7 +35,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Indication
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -93,6 +98,7 @@ import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 
 /** CompositionLocal, styled text, gestures, BoxWithConstraints and animated content. */
@@ -357,6 +363,19 @@ private fun Registry.gestures() {
             onClick = a.action("onClick"),
         )
     }
+    member<Modifier>("combinedClickable(interactionSource, indication, enabled, onClickLabel, role, onLongClickLabel, onLongClick, onDoubleClick, onClick)") { m, a ->
+        m.combinedClickable(
+            interactionSource = a.typedOrNull<MutableInteractionSource>("interactionSource"),
+            indication = a.typedOrNull<Indication>("indication"),
+            enabled = a.boolean("enabled", true),
+            onClickLabel = a.stringOrNull("onClickLabel"),
+            role = a.typedOrNull<Role>("role"),
+            onLongClickLabel = a.stringOrNull("onLongClickLabel"),
+            onLongClick = a.actionOrNull("onLongClick"),
+            onDoubleClick = a.actionOrNull("onDoubleClick"),
+            onClick = a.action("onClick"),
+        )
+    }
 
     type<IntOffset>("IntOffset")
     function("IntOffset(x, y)") { a -> IntOffset(a.int("x", 0), a.int("y", 0)) }
@@ -492,5 +511,11 @@ private fun Registry.transitions() {
             label = a.string("label", "Crossfade"),
         ) { state -> content(state) }
     }
-    member<Modifier>("animateContentSize") { m, _ -> m.animateContentSize() }
+    member<Modifier>("animateContentSize(animationSpec, finishedListener)") { m, a ->
+        val listener = if (a.lambda("finishedListener") != null) a.action2("finishedListener") else null
+        val finishedListener: ((IntSize, IntSize) -> Unit)? = listener?.let { { initial, target -> it(initial, target) } }
+        // Compose's default spec.
+        val spec = a.finiteSpec<IntSize>() ?: spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntSize.VisibilityThreshold)
+        m.animateContentSize(spec, finishedListener)
+    }
 }

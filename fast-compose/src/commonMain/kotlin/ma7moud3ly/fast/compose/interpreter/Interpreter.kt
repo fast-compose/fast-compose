@@ -57,6 +57,9 @@ internal sealed interface Target {
     class Plain(val call: () -> Any?) : Target
     class Done(val value: Any?) : Target
     class Suspend(val call: suspend () -> Any?) : Target
+
+    /** A composable from library code, through the host's [ExternalResolver]; [receiver] for a member or extension. */
+    class ExternalComposable(val symbol: ExternalSymbol, val receiver: Any?) : Target
 }
 
 /**
@@ -71,6 +74,9 @@ internal sealed interface Target {
  *
  * Code that runs for longer than [maxRunTime] without a pause, e.g. nested loops over large ranges, is stopped so the
  * host app stays responsive; `Duration.INFINITE` turns the limit off.
+ *
+ * Library names without a binding run through [externals] when the host gives one, e.g. real library code on the JVM,
+ * and as stand-ins otherwise.
  */
 public class Interpreter(
     public val program: Program,
@@ -79,6 +85,7 @@ public class Interpreter(
     private val onLog: (String) -> Unit = { println(it) },
     dependencies: List<Program> = emptyList(),
     private val maxRunTime: Duration = DEFAULT_MAX_RUN_TIME,
+    private val externals: ExternalResolver? = null,
 ) {
     private val main = FileScope(program)
     private val scopes: List<FileScope> =
@@ -654,6 +661,14 @@ public class Interpreter(
      * Finds a method in a user class or its user-declared supertypes, or else one of the class's own methods without a
      * body, e.g. in an `expect object`.
      */
+    /** True when a variable holding [value] can be called: a function value, a class, a stand-in or an `invoke` operator. */
+    private fun isInvocable(value: Any?, args: CallArgs): Boolean = when (value) {
+        is LambdaValue, is FunctionRef, is MemberRef, is ClassRef, is ComposableSlot, is StandIn, is StandInObject,
+        is PrecomputedLambda, is ErrorValue, is Function<*> -> true
+        is UserValue -> findMethod(value.decl, "invoke", args) != null
+        else -> false
+    }
+
     private fun findMethod(decl: ClassDecl, name: String, args: CallArgs): FunDecl? =
         findMethodWithBody(decl, name, args)
             ?: decl.members.filterIsInstance<FunDecl>().firstOrNull { it.name == name && it.body == null }
@@ -817,13 +832,19 @@ public class Interpreter(
     }
 
     private fun resolveCall(name: String, args: CallArgs, env: Env): Target? {
-        env.find(name).let { if (it !== Unresolved) return Target.Value(it) }
+        // As in Kotlin, a variable is called only when it can be invoked; `items(…)` inside `LazyColumn` with a
+        // parameter `items: LazyPagingItems` calls the scope's `items`.
+        env.find(name).let { if (it !== Unresolved && isInvocable(it, args)) return Target.Value(it) }
         for (receiver in env.receivers) resolveMemberCall(
             receiver,
             name,
             args,
             env
         )?.let { return it }
+        // Members of a library scope, e.g. a call inside `LibraryRow { … }` whose receiver comes from library code.
+        if (externals != null) {
+            for (receiver in env.receivers) externalMemberTarget(receiver, name, args, env, imported = false)?.let { return it }
+        }
         resolveFunction(name, args, extension = false, env.file)?.let {
             return Target.UserFunction(
                 it,
@@ -833,6 +854,7 @@ public class Interpreter(
         }
         env.file.classes[name]?.let { return Target.Constructor(it) }
         if (name in GLOBAL_INTRINSICS) return Target.Intrinsic(name, NoReceiver)
+        explicitExternal(name, env.file)?.let { return externalTarget(it, null, args, name) }
         registry.findComposable(name, args.shape)?.let { return Target.RegistryComposable(it) }
         registry.findFunction(name, args.shape)?.let { bound ->
             return Target.Plain {
@@ -859,6 +881,7 @@ public class Interpreter(
         val value = builtins.global(name, args)
         if (value !== Unresolved) return Target.Done(value)
         env.file.memberImports[name]?.let { import -> importedMemberCall(import, args, env)?.let { return it } }
+        importedExternal(name, env.file)?.let { return externalTarget(it, null, args, name) }
         importedStandIn(name, env.file)?.let { return Target.Done(it) }
         unknownStandIn(name)?.let { return Target.Done(it) }
         return null
@@ -1038,6 +1061,7 @@ public class Interpreter(
         is Target.Value -> invokeValue(target.fn, args)
         is Target.Intrinsic -> intrinsic(target, args)
         is Target.Suspend -> throw suspendFromPlain(name)
+        is Target.ExternalComposable -> throw composableFromPlain(name)
     }
 
     @Composable
@@ -1080,6 +1104,10 @@ public class Interpreter(
 
             is Target.Intrinsic -> intrinsicC(target, args)
             is Target.Suspend -> showIfError(fail(suspendFromPlain(name).message ?: name))
+            is Target.ExternalComposable -> when (val content = externalComposable(target.symbol, target.receiver, args, name)) {
+                null -> StandIn(name)
+                else -> content()
+            }
             else -> showIfError(fail("Cannot call '$name'"))
         }
 
@@ -1133,6 +1161,9 @@ public class Interpreter(
         registry.hasMember(receiver, name) -> true
         extensionProperties.any { it.name == name && isReceiverOf(receiver, it) } -> true
         receiver is UserValue && hasClassMember(receiver, name) -> true
+        // A property of a value from library code, e.g. `background` inside `fun EditorTheme.toColorScheme()`.
+        externals != null && receiver != null && isForeign(receiver) &&
+            externalLookup(name) { externals.member(receiver, name) } != null -> true
         else -> builtins.property(receiver, name) !== Unresolved
     }
 
@@ -1193,12 +1224,20 @@ public class Interpreter(
             val value = tryGetMember(receiver, name)
             if (value !== Unresolved) return value
         }
+        // A property of a library receiver, e.g. `amount` inside `fun Money.label()` where `Money` comes from a library.
+        if (externals != null) {
+            for (receiver in env.receivers) {
+                val value = externalProperty(receiver, name)
+                if (value !== Unresolved) return value
+            }
+        }
         env.file.properties[name]?.let { return topLevelProperty(it) }
         env.file.classes[name]?.let {
             return if (it.kind == ClassKind.OBJECT) objectInstance(it) else ClassRef(
                 it
             )
         }
+        explicitExternal(name, env.file)?.let { return externalRead(it, null, name) }
         if (registry.hasValue(name)) return registry.findValue(name)
         val value = builtins.globalValue(name)
         if (value !== Unresolved) return value
@@ -1206,6 +1245,7 @@ public class Interpreter(
             val imported = importedValue(import, import.memberPath, env)
             if (imported !== Unresolved) return imported
         }
+        importedExternal(name, env.file)?.let { return externalRead(it, null, name) }
         importedStandIn(name, env.file)?.let { return it }
         unknownStandIn(name)?.let { return it }
         throw unresolved(name, env.file)
@@ -1288,7 +1328,7 @@ public class Interpreter(
     }
 
     private fun getMember(receiver: Any?, name: String): Any? {
-        val value = tryGetMember(receiver, name)
+        val value = tryGetMember(receiver, name).let { if (it === Unresolved) externalProperty(receiver, name) else it }
         return if (value === Unresolved) missingMember(receiver, name) else value
     }
 
@@ -1297,7 +1337,199 @@ public class Interpreter(
 
     /** Target of a member call; a member nothing provides gives [missingMember] instead of failing. */
     private fun memberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target =
-        resolveMemberCall(receiver, name, args, env) ?: Target.Done(missingMember(receiver, name))
+        resolveMemberCall(receiver, name, args, env)
+            ?: externalMemberTarget(receiver, name, args, env)
+            ?: Target.Done(missingMember(receiver, name))
+
+    // ---------- Library code from the host's ExternalResolver ----------
+
+    /** Declarations [externals] found, by package and name; null when it has none. Asked once per name. */
+    private val externalSymbols = HashMap<Pair<String, String>, ExternalSymbol?>()
+
+    private fun externalSymbol(packageName: String, name: String): ExternalSymbol? {
+        val resolver = externals ?: return null
+        return externalSymbols.getOrPut(packageName to name) { externalLookup(name) { resolver.find(packageName, name) } }
+    }
+
+    /**
+     * The library declaration [name] that [file] imports (or `java.lang` provides implicitly), from [externals]; null
+     * when there is no resolver or it doesn't have it. An import of a member (`import a.B.c`) gives `c` of `B`. Never
+     * for DI calls ([INJECTION_CALLS]), which can't run in previews, or the resource classes `Res` and `R`, which
+     * bindings provide.
+     */
+    private fun importedExternal(name: String, file: FileScope): ExternalSymbol? {
+        if (externals == null || name in INJECTION_CALLS || name in RESOURCE_CLASSES) return null
+        val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
+        return when {
+            import != null && import.memberPath.isEmpty() -> externalSymbol(import.declarationPackage, import.declarationName)
+            import != null -> importedExternalMember(import)
+            name in IMPLICIT_JAVA_LANG -> externalSymbol("java.lang", name)
+            else -> null
+        }
+    }
+
+    /** Member [Import.memberPath] of the library class or object [import] names, bound to its owner; null if not found. */
+    private fun importedExternalMember(import: Import): ExternalSymbol? {
+        val resolver = externals ?: return null
+        val declaration = externalSymbol(import.declarationPackage, import.declarationName) ?: return null
+        var owner: Any? = externalRead(declaration, null, import.declarationName)
+        for (member in import.memberPath.dropLast(1)) {
+            owner = externalProperty(owner, member)
+            if (owner === Unresolved) return null
+        }
+        val target = owner?.takeIf(::isForeign) ?: return null
+        val name = import.memberPath.last()
+        val symbol = externalLookup(name) { resolver.member(target, name) } ?: return null
+        return BoundSymbol(symbol, target)
+    }
+
+    /** [symbol], a member of [owner], read or called on it, e.g. `isDark` after `import a.Settings.isDark`. */
+    private class BoundSymbol(private val symbol: ExternalSymbol, private val owner: Any) : ExternalSymbol {
+        override val isComposable: Boolean get() = symbol.isComposable
+        override fun read(receiver: Any?): Any? = symbol.read(owner)
+        override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? = symbol.call(owner, positional, named)
+        override fun composable(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): @Composable () -> Unit =
+            symbol.composable(owner, positional, named)
+    }
+
+    /** Explicit imports from libraries without bindings, by file and name; see [explicitExternal]. */
+    private val explicitExternals = HashMap<Pair<FileScope, String>, Any>()
+
+    /**
+     * The library declaration [name] that [file] imports explicitly from a package without bindings (not
+     * [SourceLoader.DEFAULT_LIBRARY_PACKAGES]), e.g. a library's own `Card`: as in Kotlin, it wins over a binding of
+     * the same name. Null otherwise.
+     */
+    private fun explicitExternal(name: String, file: FileScope): ExternalSymbol? {
+        if (externals == null) return null
+        return explicitExternals.getOrPut(file to name) {
+            val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
+            val packageName = import?.declarationPackage
+            val bound = packageName == null ||
+                SourceLoader.DEFAULT_LIBRARY_PACKAGES.any { packageName == it || packageName.startsWith("$it.") }
+            (if (bound) null else importedExternal(name, file)) ?: Unresolved
+        } as? ExternalSymbol
+    }
+
+    /** The call of library [symbol]: in composition for a composable, else a plain call. */
+    private fun externalTarget(symbol: ExternalSymbol, receiver: Any?, args: CallArgs, name: String): Target =
+        if (symbol.isComposable) Target.ExternalComposable(symbol, receiver) else Target.Plain { externalCall(symbol, receiver, args, name) }
+
+    /** True for values library code may know: anything but the interpreter's own values. */
+    private fun isForeign(value: Any): Boolean = value !is UserValue && value !is StandIn && value !is StandInObject &&
+        value !is LambdaValue && value !is FunctionRef && value !is MemberRef && value !is ClassRef &&
+        value !is ComposableSlot && value !is PrecomputedLambda
+
+    /**
+     * A member call on a value from library code, or (when [imported]) an extension function the file imports from a
+     * library. Calls on implicit receivers look up members only.
+     */
+    private fun externalMemberTarget(receiver: Any?, name: String, args: CallArgs, env: Env, imported: Boolean = true): Target? {
+        val resolver = externals ?: return null
+        if (receiver == null || !isForeign(receiver)) return null
+        val symbol = (if (imported) importedExternal(name, env.file) else null)
+            ?: externalLookup(name) { resolver.member(receiver, name) }
+            ?: return null
+        return externalTarget(symbol, receiver, args, name)
+    }
+
+    /** A property of a value from library code, or [Unresolved]. */
+    private fun externalProperty(receiver: Any?, name: String): Any? {
+        val resolver = externals ?: return Unresolved
+        if (receiver == null || !isForeign(receiver)) return Unresolved
+        val symbol = externalLookup(name) { resolver.member(receiver, name) } ?: return Unresolved
+        return externalRead(symbol, receiver, name)
+    }
+
+    /** Runs a lookup in [externals]; a failure is logged as a warning and counts as not found. */
+    private inline fun externalLookup(name: String, lookup: () -> ExternalSymbol?): ExternalSymbol? = try {
+        lookup()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        warn("'$name' could not be looked up in library code: ${e.message ?: e::class.simpleName}")
+        null
+    }
+
+    private fun externalRead(symbol: ExternalSymbol, receiver: Any?, name: String): Any? =
+        externalRun(name) { symbol.read(receiver) }
+
+    /** Calls [symbol] with [args]; a trailing lambda is the last positional argument, as in Kotlin. */
+    private fun externalCall(symbol: ExternalSymbol, receiver: Any?, args: CallArgs, name: String): Any? {
+        val positional = (args.positional + listOfNotNull(args.trailing)).map(::toExternal)
+        val named = args.named.mapValues { toExternal(it.value) }
+        return externalRun(name) { symbol.call(receiver, positional, named) }
+    }
+
+    /**
+     * Prepares a library composable's call: its content to run in composition, or null after reporting why the
+     * arguments don't fit. Lambdas are passed as [InterpretedLambda]s, which the host makes composable where needed.
+     */
+    private fun externalComposable(symbol: ExternalSymbol, receiver: Any?, args: CallArgs, name: String): (@Composable () -> Unit)? {
+        val positional = (args.positional + listOfNotNull(args.trailing)).map(::toInterpretedLambda)
+        val named = args.named.mapValues { toInterpretedLambda(it.value) }
+        return try {
+            symbol.composable(receiver, positional, named)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: InterpreterException) {
+            throw e
+        } catch (e: Throwable) {
+            report("'$name' can't run from library code: ${e.message ?: e::class.simpleName}")
+            null
+        }
+    }
+
+    private fun toInterpretedLambda(value: Any?): Any? = when (value) {
+        is LambdaValue -> InterpretedLambda(this, value, value.lambda.params.size, value.lambda.usesIt())
+        is FunctionRef -> InterpretedLambda(this, value, value.decl.params.size, usesIt = false)
+        is UserValue -> InterpretedObject(this, value)
+        else -> value
+    }
+
+    /** Runs library code; a failure is reported where it happened and the result is a stand-in. */
+    private inline fun externalRun(name: String, block: () -> Any?): Any? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: InterpreterException) {
+        throw e
+    } catch (e: Throwable) {
+        report("'$name' failed in library code: ${e.message ?: e::class.simpleName}")
+        StandIn(name)
+    }
+
+    /**
+     * [value] as library code takes it: interpreted lambdas and function references become Kotlin functions with their
+     * number of parameters; a lambda without declared parameters takes one when it uses `it`. Objects are passed as
+     * [InterpretedObject]s, which the host may make implement a library interface.
+     */
+    private fun toExternal(value: Any?): Any? = when (value) {
+        is UserValue -> InterpretedObject(this, value)
+        is LambdaValue -> externalFunction(this, value, value.lambda.params.size.takeIf { it > 0 } ?: if (value.lambda.usesIt()) 1 else 0)
+        is FunctionRef -> externalFunction(this, value, value.decl.params.size)
+        is MemberRef -> externalFunction(this, value, 1)
+        else -> value
+    }
+
+    internal fun objectHasFunction(obj: UserValue, name: String): Boolean = findMethod(obj.decl, name, CallArgs.Empty) != null
+
+    /** Calls method [name] of [obj] from library code; errors are reported and give an [ErrorValue]. */
+    internal fun objectCall(obj: UserValue, name: String, args: List<Any?>): Any? {
+        val method = findMethod(obj.decl, name, CallArgs(args))
+            ?: return entry { fail("'${obj.decl.name}' has no function '$name' that library code can call") }
+        return invokeSafely(FunctionRef(method, obj, memberClosure(obj, method)), NoReceiver, args)
+    }
+
+    internal fun objectHasProperty(obj: UserValue, name: String): Boolean = obj.hasField(name) || findGetter(obj.decl, name) != null
+
+    internal fun objectRead(obj: UserValue, name: String): Any? = entry {
+        guard { tryGetMember(obj, name).takeIf { it !== Unresolved } }
+    }
+
+    internal fun objectWrite(obj: UserValue, name: String, value: Any?) {
+        if (obj.hasField(name)) obj.write(name, value)
+    }
 
     /**
      * Value of a member nothing provides, such as a Compose or library API without a binding, with one warning per
@@ -2995,6 +3227,9 @@ public class Interpreter(
                 registry.findType(name)?.let { return it(value) }
                 if (value is UserValue) return isSubclass(value.decl, name)
                 if (scopes.any { name in it.classes }) return false
+                // A value from library code, e.g. the receiver of `fun EditorTheme.toColorScheme()`.
+                if (value::class.simpleName == name) return true
+                externals?.let { resolver -> runCatching { resolver.isInstance(value, name) }.getOrNull()?.let { return it } }
                 throw InterpreterException("Unsupported type '$name'")
             }
         }
@@ -3067,6 +3302,9 @@ public class Interpreter(
 
         /** Functions that run their trailing lambda once or not at all, also in the caller's evaluator. */
         val SINGLE_LAMBDA_FUNCTIONS = setOf("ifEmpty", "ifBlank", "takeIf", "takeUnless", "getOrElse")
+
+        /** Resource classes generated by the build, which the resource bindings provide. */
+        val RESOURCE_CLASSES = setOf("Res", "R")
 
         /** Calls that create a ViewModel or an injected object, which previews can't do. */
         val INJECTION_CALLS = setOf("viewModel", "hiltViewModel", "koinViewModel", "koinInject", "inject", "get")

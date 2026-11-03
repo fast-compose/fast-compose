@@ -39,6 +39,7 @@ import ma7moud3ly.fast.compose.bindings.foundation.LocalPreviewDarkTheme
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceEnvironment
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceProvider
 import ma7moud3ly.fast.compose.bindings.resources.RESOURCES_HOST_VALUE
+import ma7moud3ly.fast.compose.interpreter.LocalExternalResolver
 import ma7moud3ly.fast.compose.bindings.resources.ResourceEnvironment
 import ma7moud3ly.fast.compose.bindings.resources.ResourceProvider
 import ma7moud3ly.fast.compose.interpreter.Interpreter
@@ -178,13 +179,22 @@ private fun PreviewConfig.label(): String {
  * Remembers an interpreter for [program] and the [ComposeCode.dependencies] of [code] that sends runtime errors and
  * `println` output to the logs of [code]. Bindings outside composition read [resources] through it; when they found a
  * resource still loading, e.g. a font of a top-level `FontFamily`, a new interpreter runs the code once it is loaded.
+ * Library names without a binding run through [LocalExternalResolver] when the host provides one.
  */
 @Composable
 internal fun rememberInterpreter(code: ComposeCode, program: Program, registry: Registry, resources: ResourceProvider): Interpreter {
     val dependencies = code.dependencies
-    var generation by remember(program, dependencies, registry) { mutableIntStateOf(0) }
-    val interpreter = remember(program, dependencies, registry, generation) {
-        Interpreter(program, registry, onError = { code.logError(it) }, onLog = { code.log(it) }, dependencies = dependencies)
+    val externals = LocalExternalResolver.current
+    var generation by remember(program, dependencies, registry, externals) { mutableIntStateOf(0) }
+    val interpreter = remember(program, dependencies, registry, externals, generation) {
+        Interpreter(
+            program,
+            registry,
+            onError = { code.logError(it) },
+            onLog = { code.log(it) },
+            dependencies = dependencies,
+            externals = externals,
+        )
     }
     interpreter.hostValues[RESOURCES_HOST_VALUE] = resources
     val checks = interpreter.loadingChecks

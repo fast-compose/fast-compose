@@ -145,11 +145,13 @@ public class SourceLoader(
         return LoadedSources(found.values.toList(), missing.toList(), diagnostics)
     }
 
-    /** Names [decl] uses but does not declare, plus members it uses after a `.` that its file imports explicitly. */
-    private fun namesToFind(program: Program, decl: Decl): List<String> {
-        val imported = program.imports.mapNotNullTo(mutableSetOf()) { if (it.isStar) null else it.visibleName }
-        return (decl.externalNames() + decl.memberNames().filter { it in imported }).sorted()
-    }
+    /**
+     * Names [decl] uses but does not declare, plus names it uses after a `.`: these may be extensions declared in another
+     * file of the package or imported (`background.toColor()` with `fun Long.toColor()` in `Colors.kt`). A name after a
+     * `.` that no file declares is a member and is never reported missing.
+     */
+    private fun namesToFind(program: Program, decl: Decl): List<String> =
+        (decl.externalNames() + decl.memberNames()).sorted()
 
     /** A place [name] may be declared; [isLibrary] for a library without bindings, looked up with `findLibrary`. */
     private class Candidate(val packageName: String, val name: String, val isImport: Boolean, val isLibrary: Boolean = false)

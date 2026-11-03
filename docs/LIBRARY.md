@@ -25,6 +25,7 @@ bindings.
 - [Resources](#resources)
 - [Network images](#network-images)
 - [Multiple files](#multiple-files)
+- [Library code on the JVM](#library-code-on-the-jvm)
 - [Crashes while drawing](#crashes-while-drawing)
 
 ## ComposeCode
@@ -229,6 +230,29 @@ val code = rememberComposeCode(source, path = "ui/ProfileScreen.kt", sources = p
 ```
 
 See [MULTIPLE_FILES.md](MULTIPLE_FILES.md).
+
+## Library code on the JVM
+
+Library APIs without a binding run as stand-ins. On the JVM, a `JarResolver` runs the real library code instead,
+from the project's library jars (e.g. as Gradle resolved them):
+
+```kotlin
+val libraries = JarResolver(jars) // List<File>; close() it when the project changes
+
+CompositionLocalProvider(LocalExternalResolver provides libraries) {
+    FastComposePreview(code)
+}
+```
+
+It finds classes and objects, a package's top-level functions and properties, and members of the values library code
+returns, with named and default arguments. Library composables run too, with their default arguments, value class
+parameters (`Color`, `Dp`) and content lambdas written in the preview. Imported members (`import a.Settings.isDark`)
+work, and a name imported from a library wins over a binding of the same name, as in Kotlin. Project objects passed
+to a library interface parameter (`class FakeSettings : Settings`) are forwarded to their own members, and to the
+interface's default methods for the rest. Kotlin, coroutines, Compose and the JDK always
+come from the app, so values pass freely between library code and bindings; libraries need a Compose version the app
+can link, and Android-only code doesn't run on the desktop. Any other host can plug in its own `ExternalResolver`;
+without one (the web, iOS) library APIs stay stand-ins.
 
 ## Crashes while drawing
 
