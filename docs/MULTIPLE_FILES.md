@@ -27,6 +27,29 @@ fun interface SourceProvider {
   as the project's, except the libraries in `SourceLoader.DEFAULT_LIBRARY_PACKAGES` (`androidx`, `kotlin`,
   `kotlinx`, `java`, `org.jetbrains.compose`, Coil, …).
 
+## Project folders
+
+Hosts that read a project from its folders, such as a CLI, don't need to write a `SourceProvider`:
+
+```kotlin
+val sources = KotlinSources(DiskFiles) // keep one per project: it caches parsed files
+val provider = FolderSources(sources, DiskFiles.pathOf(file))
+val code = rememberComposeCode(source, path = DiskFiles.pathOf(file), sources = provider)
+```
+
+- `ProjectFiles` is the file access: `list`, `isFolder`, `read` and `version`, by `/`-separated paths. `DiskFiles`
+  reads the disk on the JVM and Android; an IDE can implement it over its own file tree, with unsaved editor text.
+- `KotlinSources` finds the file in a package that declares a top-level name, under source roots given in order,
+  or under the previewed file's own source root (found from its package) when no root has the package. Private
+  declarations are skipped, a declaration with a body wins over one without, and an `expect` is replaced by its
+  `actual` from the module's other source sets: `jvmMain`/`desktopMain` first, then `androidMain`, then the others.
+  The file of a replaced `expect` is served with it blanked out, keeping lines. Each file is parsed once per version.
+- `FolderSources(sources, from, roots, libraryRoots)` is the `SourceProvider`: by default its roots are the file's own
+  source root and its module's `commonMain`/`main` Kotlin roots, and packages with a folder there are the project's.
+  `libraryRoots`, e.g. extracted sources jars, serve library classes and objects.
+- `GradleLayout` holds the layout rules: `sourceSetOf(path)`, `isPreviewRoot(path)` (generated sources count, except
+  Compose resource accessors), `platformRank(sourceSet)` and `resourceFolders` (see [RESOURCES.md](RESOURCES.md)).
+
 ## Loading
 
 After each parse, `SourceLoader` follows every declaration of the previewed file, and in other files only the

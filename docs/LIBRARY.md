@@ -251,7 +251,9 @@ work, and a name imported from a library wins over a binding of the same name, a
 to a library interface parameter (`class FakeSettings : Settings`) are forwarded to their own members, and to the
 interface's default methods for the rest. Kotlin, coroutines, Compose and the JDK always
 come from the app, so values pass freely between library code and bindings; libraries need a Compose version the app
-can link, and Android-only code doesn't run on the desktop. Any other host can plug in its own `ExternalResolver`;
+can link, and Android-only code doesn't run on the desktop. `GradleJars.jvmJars(classpath)` prepares a resolved
+classpath for it: KMP metadata jars become their `-jvm` jars from Gradle's cache, and the host's own libraries
+(Kotlin, coroutines, Compose, Skiko) and jars built inside the project are left out. Any other host can plug in its own `ExternalResolver`;
 without one (the web, iOS) library APIs stay stand-ins.
 
 ## Crashes while drawing
