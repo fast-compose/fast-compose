@@ -71,6 +71,9 @@ internal sealed interface Target {
  *
  * Code that runs for longer than [maxRunTime] without a pause, e.g. nested loops over large ranges, is stopped so the
  * host app stays responsive; `Duration.INFINITE` turns the limit off.
+ *
+ * Library names without a binding run through [externals] when the host gives one, e.g. real library code on the JVM,
+ * and as stand-ins otherwise.
  */
 public class Interpreter(
     public val program: Program,
@@ -79,6 +82,7 @@ public class Interpreter(
     private val onLog: (String) -> Unit = { println(it) },
     dependencies: List<Program> = emptyList(),
     private val maxRunTime: Duration = DEFAULT_MAX_RUN_TIME,
+    private val externals: ExternalResolver? = null,
 ) {
     private val main = FileScope(program)
     private val scopes: List<FileScope> =
@@ -859,6 +863,7 @@ public class Interpreter(
         val value = builtins.global(name, args)
         if (value !== Unresolved) return Target.Done(value)
         env.file.memberImports[name]?.let { import -> importedMemberCall(import, args, env)?.let { return it } }
+        importedExternal(name, env.file)?.let { symbol -> return Target.Plain { externalCall(symbol, null, args, name) } }
         importedStandIn(name, env.file)?.let { return Target.Done(it) }
         unknownStandIn(name)?.let { return Target.Done(it) }
         return null
@@ -1206,6 +1211,7 @@ public class Interpreter(
             val imported = importedValue(import, import.memberPath, env)
             if (imported !== Unresolved) return imported
         }
+        importedExternal(name, env.file)?.let { return externalRead(it, null, name) }
         importedStandIn(name, env.file)?.let { return it }
         unknownStandIn(name)?.let { return it }
         throw unresolved(name, env.file)
@@ -1288,7 +1294,7 @@ public class Interpreter(
     }
 
     private fun getMember(receiver: Any?, name: String): Any? {
-        val value = tryGetMember(receiver, name)
+        val value = tryGetMember(receiver, name).let { if (it === Unresolved) externalProperty(receiver, name) else it }
         return if (value === Unresolved) missingMember(receiver, name) else value
     }
 
@@ -1297,7 +1303,99 @@ public class Interpreter(
 
     /** Target of a member call; a member nothing provides gives [missingMember] instead of failing. */
     private fun memberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target =
-        resolveMemberCall(receiver, name, args, env) ?: Target.Done(missingMember(receiver, name))
+        resolveMemberCall(receiver, name, args, env)
+            ?: externalMemberTarget(receiver, name, args, env)
+            ?: Target.Done(missingMember(receiver, name))
+
+    // ---------- Library code from the host's ExternalResolver ----------
+
+    /** Declarations [externals] found, by package and name; null when it has none. Asked once per name. */
+    private val externalSymbols = HashMap<Pair<String, String>, ExternalSymbol?>()
+
+    private fun externalSymbol(packageName: String, name: String): ExternalSymbol? {
+        val resolver = externals ?: return null
+        return externalSymbols.getOrPut(packageName to name) { externalLookup(name) { resolver.find(packageName, name) } }
+    }
+
+    /**
+     * The library declaration [name] that [file] imports (or `java.lang` provides implicitly), from [externals]; null
+     * when there is no resolver or it doesn't have it. Imports of members (`a.B.c`) are not looked up.
+     */
+    private fun importedExternal(name: String, file: FileScope): ExternalSymbol? {
+        if (externals == null) return null
+        val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
+        return when {
+            import != null && import.memberPath.isEmpty() -> externalSymbol(import.declarationPackage, import.declarationName)
+            import == null && name in IMPLICIT_JAVA_LANG -> externalSymbol("java.lang", name)
+            else -> null
+        }
+    }
+
+    /** True for values library code may know: anything but the interpreter's own values. */
+    private fun isForeign(value: Any): Boolean = value !is UserValue && value !is StandIn && value !is StandInObject &&
+        value !is LambdaValue && value !is FunctionRef && value !is MemberRef && value !is ClassRef &&
+        value !is ComposableSlot && value !is PrecomputedLambda
+
+    /** A member call on a value from library code, or an extension function the file imports from a library. */
+    private fun externalMemberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
+        val resolver = externals ?: return null
+        if (receiver == null || !isForeign(receiver)) return null
+        val symbol = importedExternal(name, env.file)
+            ?: externalLookup(name) { resolver.member(receiver, name) }
+            ?: return null
+        return Target.Plain { externalCall(symbol, receiver, args, name) }
+    }
+
+    /** A property of a value from library code, or [Unresolved]. */
+    private fun externalProperty(receiver: Any?, name: String): Any? {
+        val resolver = externals ?: return Unresolved
+        if (receiver == null || !isForeign(receiver)) return Unresolved
+        val symbol = externalLookup(name) { resolver.member(receiver, name) } ?: return Unresolved
+        return externalRead(symbol, receiver, name)
+    }
+
+    /** Runs a lookup in [externals]; a failure is logged as a warning and counts as not found. */
+    private inline fun externalLookup(name: String, lookup: () -> ExternalSymbol?): ExternalSymbol? = try {
+        lookup()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        warn("'$name' could not be looked up in library code: ${e.message ?: e::class.simpleName}")
+        null
+    }
+
+    private fun externalRead(symbol: ExternalSymbol, receiver: Any?, name: String): Any? =
+        externalRun(name) { symbol.read(receiver) }
+
+    /** Calls [symbol] with [args]; a trailing lambda is the last positional argument, as in Kotlin. */
+    private fun externalCall(symbol: ExternalSymbol, receiver: Any?, args: CallArgs, name: String): Any? {
+        val positional = (args.positional + listOfNotNull(args.trailing)).map(::toExternal)
+        val named = args.named.mapValues { toExternal(it.value) }
+        return externalRun(name) { symbol.call(receiver, positional, named) }
+    }
+
+    /** Runs library code; a failure is reported where it happened and the result is a stand-in. */
+    private inline fun externalRun(name: String, block: () -> Any?): Any? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: InterpreterException) {
+        throw e
+    } catch (e: Throwable) {
+        report("'$name' failed in library code: ${e.message ?: e::class.simpleName}")
+        StandIn(name)
+    }
+
+    /**
+     * [value] as library code takes it: interpreted lambdas and function references become Kotlin functions with their
+     * number of parameters; a lambda without declared parameters takes one when it uses `it`.
+     */
+    private fun toExternal(value: Any?): Any? = when (value) {
+        is LambdaValue -> externalFunction(this, value, value.lambda.params.size.takeIf { it > 0 } ?: if (value.lambda.usesIt()) 1 else 0)
+        is FunctionRef -> externalFunction(this, value, value.decl.params.size)
+        is MemberRef -> externalFunction(this, value, 1)
+        else -> value
+    }
 
     /**
      * Value of a member nothing provides, such as a Compose or library API without a binding, with one warning per

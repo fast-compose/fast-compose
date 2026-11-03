@@ -195,6 +195,23 @@ internal data class StandInObject(val name: String, val properties: Map<String, 
     override fun toString(): String = "$name(${properties.entries.joinToString { "${it.key}=${it.value}" }})"
 }
 
+/**
+ * An interpreted lambda or function reference [fn] as a Kotlin function of [arity] parameters (0 to 3), for library
+ * code; errors inside are reported, not thrown.
+ */
+internal fun externalFunction(interpreter: Interpreter, fn: Any?, arity: Int): Any {
+    val none: () -> Any? = { interpreter.invokeSafely(fn, NoReceiver, emptyList()) }
+    val one: (Any?) -> Any? = { a -> interpreter.invokeSafely(fn, NoReceiver, listOf(a)) }
+    val two: (Any?, Any?) -> Any? = { a, b -> interpreter.invokeSafely(fn, NoReceiver, listOf(a, b)) }
+    val three: (Any?, Any?, Any?) -> Any? = { a, b, c -> interpreter.invokeSafely(fn, NoReceiver, listOf(a, b, c)) }
+    return when (arity) {
+        0 -> none
+        1 -> one
+        2 -> two
+        else -> three
+    }
+}
+
 /** A user class used as a value: `Screen.Home`, `Message::class`, companion access. */
 public class ClassRef internal constructor(public val decl: ClassDecl) {
     override fun toString(): String = "class ${decl.name}"

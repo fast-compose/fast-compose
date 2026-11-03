@@ -29,6 +29,13 @@ public fun Decl.memberNames(): Set<String> {
     return walker.members
 }
 
+/** True when the lambda's body uses `it`, so a lambda without declared parameters takes one argument. */
+public fun Lambda.usesIt(): Boolean {
+    val walker = ReferenceWalker()
+    walker.block(body)
+    return "it" in walker.used
+}
+
 private class ReferenceWalker {
     val used = mutableSetOf<String>()
     val declared = mutableSetOf<String>()
