@@ -658,6 +658,14 @@ public class Interpreter(
      * Finds a method in a user class or its user-declared supertypes, or else one of the class's own methods without a
      * body, e.g. in an `expect object`.
      */
+    /** True when a variable holding [value] can be called: a function value, a class, a stand-in or an `invoke` operator. */
+    private fun isInvocable(value: Any?, args: CallArgs): Boolean = when (value) {
+        is LambdaValue, is FunctionRef, is MemberRef, is ClassRef, is ComposableSlot, is StandIn, is StandInObject,
+        is PrecomputedLambda, is ErrorValue, is Function<*> -> true
+        is UserValue -> findMethod(value.decl, "invoke", args) != null
+        else -> false
+    }
+
     private fun findMethod(decl: ClassDecl, name: String, args: CallArgs): FunDecl? =
         findMethodWithBody(decl, name, args)
             ?: decl.members.filterIsInstance<FunDecl>().firstOrNull { it.name == name && it.body == null }
@@ -821,7 +829,9 @@ public class Interpreter(
     }
 
     private fun resolveCall(name: String, args: CallArgs, env: Env): Target? {
-        env.find(name).let { if (it !== Unresolved) return Target.Value(it) }
+        // As in Kotlin, a variable is called only when it can be invoked; `items(…)` inside `LazyColumn` with a
+        // parameter `items: LazyPagingItems` calls the scope's `items`.
+        env.find(name).let { if (it !== Unresolved && isInvocable(it, args)) return Target.Value(it) }
         for (receiver in env.receivers) resolveMemberCall(
             receiver,
             name,

@@ -398,6 +398,22 @@ class InterpreterTest {
     }
 
     @Test
+    fun variablesThatCantBeInvokedDontHideFunctions() {
+        val code = """
+            class Scope {
+                fun items(count: Int) = "scope " + count
+            }
+
+            fun test(): List<String> {
+                val items = listOf(1, 2)
+                val twice = { n: Int -> "twice " + n * 2 }
+                return listOf(with(Scope()) { items(items.size) }, twice(3))
+            }
+        """.trimIndent()
+        assertEquals(listOf("scope 2", "twice 6"), run(code))
+    }
+
+    @Test
     fun primitiveArraysAndMath() {
         val code = """
             fun test(): List<Any> {
