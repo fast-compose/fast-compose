@@ -9,6 +9,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
+import kotlin.reflect.full.companionObjectInstance
+import kotlin.reflect.full.allSuperclasses
+import kotlin.reflect.full.memberFunctions
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.kotlinFunction
@@ -40,10 +43,15 @@ internal class ReflectionResolver(
     }
 
     private fun findNow(packageName: String, name: String): ExternalSymbol? {
-        loadClass(if (packageName.isEmpty()) name else "$packageName.$name")?.let { return ClassSymbol(it) }
         val prefix = if (packageName.isEmpty()) "" else "$packageName."
-        val facades = packageClasses(packageName).filter { it.endsWith("Kt") }.mapNotNull { loadClass(prefix + it) }
+        // File classes of the package: indexed ones, and for packages the index doesn't hold, such as the host's
+        // coroutines, `ChannelKt` for `Channel` and the package's multi-file class (`FlowKt` for `kotlinx.coroutines.flow`).
+        val packageFacade = "${packageName.substringAfterLast('.').capitalized()}Kt"
+        val facadeNames = (packageClasses(packageName).filter { it.endsWith("Kt") } + "${name}Kt" + "${name.capitalized()}Kt" + packageFacade).distinct()
+        val facades = facadeNames.mapNotNull { loadClass(prefix + it) }
         val functions = facades.flatMap { facade -> facade.methods.filter { Modifier.isStatic(it.modifiers) && sameName(it, name) } }
+        // A class and a factory function may share a name, e.g. the `Channel` interface and `Channel<T>(capacity)`.
+        loadClass(prefix + name)?.let { return ClassSymbol(it, functions) }
         if (functions.isNotEmpty()) return functionSymbol(functions, static = true)
         val getter = getterName(name)
         val property = facades.firstNotNullOfOrNull { facade ->
@@ -65,17 +73,60 @@ internal class ReflectionResolver(
         val property = runCatching { type.kotlin.memberProperties.firstOrNull { it.name == name } }.getOrNull()
         if (property != null) {
             return object : ExternalSymbol {
-                override fun read(receiver: Any?): Any? = property.apply { isAccessible = true }.getter.call(receiver)
+                // Constants of objects take no receiver when called, though reflection may list one, e.g. `const val
+                // BUFFERED` of `Channel.Factory`: a call that has the wrong number of arguments is retried the other way.
+                override fun read(receiver: Any?): Any? {
+                    val getter = property.apply { isAccessible = true }.getter
+                    val withReceiver = getter.parameters.isNotEmpty()
+                    return try {
+                        if (withReceiver) getter.call(receiver) else getter.call()
+                    } catch (e: IllegalArgumentException) {
+                        if (withReceiver) getter.call() else getter.call(receiver)
+                    }
+                }
                 override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? =
-                    FunctionSymbol(methods, static = false).call(receiver, positional, named)
+                    memberFunctionSymbol(type, name, methods).call(receiver, positional, named)
             }
         }
-        if (methods.isNotEmpty()) return functionSymbol(methods, static = false)
+        if (methods.isNotEmpty()) return memberFunctionSymbol(type, name, methods)
         val getter = getterName(name)
         val javaGetter = type.methods.firstOrNull { (it.name == getter || it.name == "is${name.capitalized()}") && it.parameterCount == 0 }
         if (javaGetter != null) return PropertySymbol { invoke(javaGetter, it, emptyArray()) }
         val field = type.fields.firstOrNull { it.name == name } ?: return null
         return PropertySymbol { field.get(it) }
+    }
+
+    /**
+     * Methods [name] of [type]: Kotlin's member functions first, of the class and then of its supertypes, since a
+     * default argument may be declared only on a supertype (`SendChannel.close(cause = null)`, called on a
+     * `BufferedChannel`); then [methods] by Java reflection. A function that reflection itself can't call is skipped;
+     * an exception thrown by the library code is not.
+     */
+    private fun memberFunctionSymbol(type: Class<*>, name: String, methods: List<Method>): ExternalSymbol {
+        if (methods.any(::isComposable)) return functionSymbol(methods, static = false)
+        val functions = runCatching {
+            (listOf(type.kotlin) + type.kotlin.allSuperclasses).flatMap { owner -> owner.memberFunctions.filter { it.name == name } }
+        }.getOrDefault(emptyList())
+        val java = FunctionSymbol(methods, static = false)
+        if (functions.isEmpty()) return java
+        return object : ExternalSymbol {
+            override fun read(receiver: Any?): Any? = throw UnsupportedOperationException("'$name' is a function")
+
+            override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? {
+                for (function in functions) {
+                    val args = bind(function, receiver, positional, named) ?: continue
+                    try {
+                        function.isAccessible = true
+                        return function.callBy(args)
+                    } catch (e: InvocationTargetException) {
+                        throw e.targetException
+                    } catch (_: Throwable) {
+                        continue
+                    }
+                }
+                return java.call(receiver, positional, named)
+            }
+        }
     }
 
     /** Plain functions, or composables when the overloads are compiled composables (see [ComposableSymbol]). */
@@ -93,14 +144,18 @@ internal class ReflectionResolver(
     }
 
     /** A class: called, its constructor; read, its companion object, `object` instance, or its static members. */
-    private inner class ClassSymbol(private val type: Class<*>) : ExternalSymbol {
+    private inner class ClassSymbol(private val type: Class<*>, private val factories: List<Method>) : ExternalSymbol {
         override fun read(receiver: Any?): Any? {
+            // Companions may have other names, e.g. `Channel.Factory`.
+            runCatching { type.kotlin.objectInstance }.getOrNull()?.let { return it }
+            runCatching { type.kotlin.companionObjectInstance }.getOrNull()?.let { return it }
             staticField(type, "INSTANCE")?.let { return it }
             staticField(type, "Companion")?.let { return it }
             return StaticScope(type)
         }
 
         override fun call(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? {
+            if (type.isInterface || Modifier.isAbstract(type.modifiers)) return callFactory(receiver, positional, named)
             val kotlinClass: KClass<*>? = runCatching { type.kotlin.also { it.constructors } }.getOrNull()
             kotlinClass?.constructors?.let { constructors ->
                 for (constructor in constructors) bind(constructor, null, positional, named)?.let { return callBy(constructor, it) }
@@ -113,8 +168,27 @@ internal class ReflectionResolver(
                     throw e.targetException
                 }
             }
-            throw IllegalArgumentException("No constructor of ${type.simpleName} takes these arguments")
+            return callFactory(receiver, positional, named)
         }
+
+        private fun callFactory(receiver: Any?, positional: List<Any?>, named: Map<String, Any?>): Any? {
+            if (factories.isEmpty()) throw IllegalArgumentException("No constructor of ${type.simpleName} takes these arguments")
+            return FunctionSymbol(factories, static = true).call(receiver, positional, named)
+        }
+    }
+
+    /** True when [value]'s class, a superclass or an interface is named [typeName] (simple or qualified). */
+    override fun isInstance(value: Any, typeName: String): Boolean {
+        val queue = ArrayDeque<Class<*>>().apply { add(value.javaClass) }
+        val seen = HashSet<Class<*>>()
+        while (queue.isNotEmpty()) {
+            val type = queue.removeFirst()
+            if (!seen.add(type)) continue
+            if (type.simpleName == typeName || type.name == typeName) return true
+            type.superclass?.let(queue::add)
+            queue.addAll(type.interfaces)
+        }
+        return false
     }
 
     /** Overloads of a function or method; the first whose parameters fit the arguments runs. */
@@ -229,12 +303,12 @@ internal class ReflectionResolver(
 
         fun convertTo(value: Any, type: Class<*>): Any? = when {
             type.isInstance(value) -> value
-            value is Number && type == java.lang.Long::class.java -> value.toLong()
-            value is Number && type == java.lang.Integer::class.java -> value.toInt()
-            value is Number && type == java.lang.Double::class.java -> value.toDouble()
-            value is Number && type == java.lang.Float::class.java -> value.toFloat()
-            value is Number && type == java.lang.Short::class.java -> value.toShort()
-            value is Number && type == java.lang.Byte::class.java -> value.toByte()
+            value is Number && type == Long::class.javaObjectType -> value.toLong()
+            value is Number && type == Int::class.javaObjectType -> value.toInt()
+            value is Number && type == Double::class.javaObjectType -> value.toDouble()
+            value is Number && type == Float::class.javaObjectType -> value.toFloat()
+            value is Number && type == Short::class.javaObjectType -> value.toShort()
+            value is Number && type == Byte::class.javaObjectType -> value.toByte()
             else -> null
         }
 

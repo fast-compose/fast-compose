@@ -169,12 +169,12 @@ internal class ComposableSymbol(private val methods: List<Method>, private val s
 
         fun convertNumber(value: Any, type: Class<*>): Any? = when {
             value !is Number -> null
-            type == java.lang.Long::class.java -> value.toLong()
-            type == java.lang.Integer::class.java -> value.toInt()
-            type == java.lang.Double::class.java -> value.toDouble()
-            type == java.lang.Float::class.java -> value.toFloat()
-            type == java.lang.Short::class.java -> value.toShort()
-            type == java.lang.Byte::class.java -> value.toByte()
+            type == Long::class.javaObjectType -> value.toLong()
+            type == Int::class.javaObjectType -> value.toInt()
+            type == Double::class.javaObjectType -> value.toDouble()
+            type == Float::class.javaObjectType -> value.toFloat()
+            type == Short::class.javaObjectType -> value.toShort()
+            type == Byte::class.javaObjectType -> value.toByte()
             else -> null
         }
 

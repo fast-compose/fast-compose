@@ -19,6 +19,12 @@ public interface ExternalResolver {
 
     /** Member [name] of [receiver], a value that library code returned: a method or property; null if none. */
     public fun member(receiver: Any, name: String): ExternalSymbol?
+
+    /**
+     * Whether [value], from library code, is of type [typeName] (a simple or qualified name), e.g. for `is` checks and
+     * extension receivers; null when unknown.
+     */
+    public fun isInstance(value: Any, typeName: String): Boolean? = null
 }
 
 /**

@@ -143,6 +143,16 @@ class MultiFileTest {
     }
 
     @Test
+    fun extensionsOfTheSamePackageNeedNoImport() = runTest {
+        val code = """
+            package app.ui
+
+            fun test() = "hi".shout()
+        """
+        assertEquals("HI!", run(code))
+    }
+
+    @Test
     fun privateDeclarationsStayInTheirFile() = runTest {
         val code = """
             package app.ui

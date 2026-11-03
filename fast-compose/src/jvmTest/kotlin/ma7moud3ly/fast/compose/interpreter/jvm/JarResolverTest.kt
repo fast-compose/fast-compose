@@ -104,6 +104,32 @@ class JarResolverTest {
     }
 
     @Test
+    fun libraryValuesMeetProjectCode() {
+        val code = """
+            import kotlinx.coroutines.channels.Channel
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Money
+
+            fun Money.label(): String = "m" + amount
+
+            fun Long.twice(): Long = this * 2
+
+            fun Money.doubled(): Long = amount.twice()
+
+            fun test(): List<Any?> {
+                val channel = Channel<Int>(Channel.BUFFERED)
+                return listOf(Money(2).label(), Money(2) is Money, channel.close(), Money(2).doubled())
+            }
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        JarResolver(listOf(classes)).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val result = Interpreter(program, Registry(), onError = { problems += it }, externals = resolver).call("test")
+            assertEquals(emptyList(), problems)
+            assertEquals(listOf("m2", true, true, 4L), result)
+        }
+    }
+
+    @Test
     fun failuresInLibraryCodeAreReported() {
         val code = """
             import java.time.LocalDate

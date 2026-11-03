@@ -33,6 +33,8 @@ public class JarResolver(
 
     override fun member(receiver: Any, name: String): ExternalSymbol? = resolver.member(receiver, name)
 
+    override fun isInstance(value: Any, typeName: String): Boolean = resolver.isInstance(value, typeName)
+
     override fun close(): Unit = loader.close()
 
     public companion object {

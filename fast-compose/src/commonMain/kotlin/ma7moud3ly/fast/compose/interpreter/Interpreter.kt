@@ -1162,6 +1162,9 @@ public class Interpreter(
         registry.hasMember(receiver, name) -> true
         extensionProperties.any { it.name == name && isReceiverOf(receiver, it) } -> true
         receiver is UserValue && hasClassMember(receiver, name) -> true
+        // A property of a value from library code, e.g. `background` inside `fun EditorTheme.toColorScheme()`.
+        externals != null && receiver != null && isForeign(receiver) &&
+            externalLookup(name) { externals.member(receiver, name) } != null -> true
         else -> builtins.property(receiver, name) !== Unresolved
     }
 
@@ -1221,6 +1224,13 @@ public class Interpreter(
         for (receiver in env.receivers) {
             val value = tryGetMember(receiver, name)
             if (value !== Unresolved) return value
+        }
+        // A property of a library receiver, e.g. `amount` inside `fun Money.label()` where `Money` comes from a library.
+        if (externals != null) {
+            for (receiver in env.receivers) {
+                val value = externalProperty(receiver, name)
+                if (value !== Unresolved) return value
+            }
         }
         env.file.properties[name]?.let { return topLevelProperty(it) }
         env.file.classes[name]?.let {
@@ -3146,6 +3156,9 @@ public class Interpreter(
                 registry.findType(name)?.let { return it(value) }
                 if (value is UserValue) return isSubclass(value.decl, name)
                 if (scopes.any { name in it.classes }) return false
+                // A value from library code, e.g. the receiver of `fun EditorTheme.toColorScheme()`.
+                if (value::class.simpleName == name) return true
+                externals?.let { resolver -> runCatching { resolver.isInstance(value, name) }.getOrNull()?.let { return it } }
                 throw InterpreterException("Unsupported type '$name'")
             }
         }
