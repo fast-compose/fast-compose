@@ -42,6 +42,7 @@ Files are laid out like Android `res/` or Compose Multiplatform `composeResource
 | `MemoryResources` | Files you put in it, e.g. from drag and drop or an editor |
 | `StorageResources` | A folder, through a `ResourceStorage` such as `FileStorage` |
 | `UrlResources` | A base URL, downloading files when previews need them |
+| `ChainResources` | Several providers in order, e.g. a module's folders first, then its dependencies' |
 
 ### MemoryResources
 
@@ -56,6 +57,20 @@ it, then cached. Call `refresh()` after files change.
 - `FileStorage(folder)`, on the JVM and Android, uses `java.io`. On the JVM, `storage.watch { resources.refresh() }`
   follows changes.
 - Other file systems, such as FileKit or Okio, need a small `ResourceStorage` adapter.
+
+### ChainResources
+
+`ChainResources(providers)` looks resources up in each provider in order. While an earlier provider is still reading
+a match, later ones are not used, so a resource never flips from a dependency's version to the module's own.
+
+`GradleLayout.resourceFolders(files, path)` lists a Kotlin file's resource folders by Gradle layout, most specific
+first: its own source set (`src/androidMain/res`), source sets the host passes (e.g. of modules it depends on), then
+its module's `commonMain` and `main` (`src/commonMain/composeResources`). With `DiskFiles` on the JVM:
+
+```kotlin
+val folders = GradleLayout.resourceFolders(DiskFiles, DiskFiles.pathOf(file))
+val resources = ChainResources(folders.map { StorageResources(FileStorage(File(it)), scope) })
+```
 
 ### UrlResources
 

@@ -187,7 +187,9 @@ flowchart BT
 | Package `ma7moud3ly.fast.compose.*` | Contents |
 |---|---|
 | `parser` | Kotlin lexer and parser: source code to syntax tree |
-| `interpreter` | Runs the syntax tree inside composition; `Registry`, `BindingPack`, multi-file loading |
+| `interpreter` | Runs the syntax tree inside composition; `Registry`, `BindingPack`, multi-file loading, `ExternalResolver` |
+| `interpreter.jvm` | JVM only: `JarResolver`, running library code and composables through reflection; `GradleJars` |
+| `project` | For hosts: project files (`ProjectFiles`, `DiskFiles`), `KotlinSources`, `FolderSources`, `GradleLayout` |
 | `bindings.foundation` | Layouts, text, state, modifiers, drawing, effects, gestures, animation |
 | `bindings.material3` | Material 3 components, theming and defaults |
 | `bindings.icons` | Material icons (`Icons.Default.*`, `Icons.Filled.*`, `Icons.Outlined.*`, `Icons.AutoMirrored.*`) |
