@@ -17,71 +17,12 @@ Write Compose code, see it render in milliseconds, on Android, iOS, desktop and 
 
 ---
 
-## Where you can use Fast Compose
-
-### <img src="https://raw.githubusercontent.com/fast-compose/playground/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Run Compose anywhere
-
-**[Fast Compose Playground](https://github.com/fast-compose/playground)** runs composables on the web, desktop and
-mobile. Write Compose, see it live: no install, no compile server, no waiting.
-
-### <img src="https://raw.githubusercontent.com/fast-compose/intellij-plugin/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Faster previews in your IDE
-
-**Plugins for [Android Studio and IntelliJ IDEA](https://github.com/fast-compose/intellij-plugin) and
-[VS Code](https://github.com/fast-compose/vscode-extension)** render `@Preview` functions as you type, with no Kotlin
-compiler, no Compose compiler plugin and no JVM preview process.
-
-### <img src="https://raw.githubusercontent.com/fast-compose/compose-script/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Compose inside static HTML
-
-**[compose-script](https://github.com/fast-compose/compose-script)** embeds live, editable Compose snippets in any
-static page: documentation, blogs, tutorials and design system catalogs.
-
-Add one script to the page:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/@fast-compose/compose-script/compose-script.js"></script>
-```
-
-Then write Compose anywhere in the page:
-
-```html
-<script type="text/compose-content">
-  Column {
-    Text("Hello from Compose!")
-    Button(onClick = {}) {
-      Text("Click me")
-    }
-  }
-</script>
-```
-
-### <img src="docs/images/logo.png" height="40" align="absmiddle" alt=""> Dynamic Compose in your apps
-
-**[The Maven library](docs/LIBRARY.md)** renders Compose code at runtime in your Kotlin Multiplatform apps.
-
-```kotlin
-val code = rememberComposeCode("""
-    @Preview
-    @Composable
-    fun Hello() {
-        Text("Hello from Compose!")
-    }
-""".trimIndent())
-
-FastComposePreview(code)
-```
-
-### Compose for AI agents
-
-**[compose-cli](https://github.com/fast-compose/compose-cli)** checks and renders Compose previews from the terminal, or
-as an MCP server that AI agents call while they write UI code. No Gradle, no compiler, no Android Studio.
-
----
-
 ## Contents
 
 - [The problem](#the-problem)
 - [How Fast Compose works](#how-fast-compose-works)
 - [KMP Library](#kmp-library)
+- [Where you can use Fast Compose](#where-you-can-use-fast-compose)
 - [Structure](#structure)
 - [Building and testing](#building-and-testing)
 - [Documentation](#documentation)
@@ -176,6 +117,48 @@ fun App() {
 See [docs/LIBRARY.md](docs/LIBRARY.md) for every composable and option: `FastComposePreview`,
 `BasicComposePreview`, `FastComposeContent`, `FastComposeLogs`, registries and your own components, resources,
 network images and multiple files.
+
+## Where you can use Fast Compose
+
+### <img src="https://raw.githubusercontent.com/fast-compose/playground/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Run Compose anywhere
+
+**[Fast Compose Playground](https://github.com/fast-compose/playground)** runs composables on the web, desktop and
+mobile. Write Compose, see it live: no install, no compile server, no waiting.
+
+### <img src="https://raw.githubusercontent.com/fast-compose/intellij-plugin/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Faster previews in your IDE
+
+**Plugins for [Android Studio and IntelliJ IDEA](https://github.com/fast-compose/intellij-plugin) and
+[VS Code](https://github.com/fast-compose/vscode-extension)** render `@Preview` functions as you type, with no Kotlin
+compiler, no Compose compiler plugin and no JVM preview process.
+
+### <img src="https://raw.githubusercontent.com/fast-compose/compose-script/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Compose inside static HTML
+
+**[compose-script](https://github.com/fast-compose/compose-script)** embeds live, editable Compose snippets in any
+static page: documentation, blogs, tutorials and design system catalogs.
+
+Add one script to the page:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@fast-compose/compose-script/compose-script.js"></script>
+```
+
+Then write Compose anywhere in the page:
+
+```html
+<script type="text/compose-content">
+  Column {
+    Text("Hello from Compose!")
+    Button(onClick = {}) {
+      Text("Click me")
+    }
+  }
+</script>
+```
+
+### Compose for AI agents
+
+**[compose-cli](https://github.com/fast-compose/compose-cli)** checks and renders Compose previews from the terminal, or
+as an MCP server that AI agents call while they write UI code. No Gradle, no compiler, no Android Studio.
 
 ## Structure
 
