@@ -155,10 +155,25 @@ Then write Compose anywhere in the page:
 </script>
 ```
 
-### Compose for AI agents
+### <img src="https://raw.githubusercontent.com/fast-compose/compose-cli/main/docs/images/logo.png" height="40" align="absmiddle" alt=""> Compose for the terminal and AI agents
 
-**[compose-cli](https://github.com/fast-compose/compose-cli)** checks and renders Compose previews from the terminal, or
-as an MCP server that AI agents call while they write UI code. No Gradle, no compiler, no Android Studio.
+**[Fast Compose CLI](https://github.com/fast-compose/compose-cli)** checks and renders `@Preview` functions from the
+terminal, in CI, or as an MCP server that AI agents call while they write UI code. No Gradle, no compiler, no Android
+Studio.
+
+```bash
+fast-compose check -r app/src
+fast-compose render HomeScreen.kt --dark --size tablet -o previews
+```
+
+Add it to an AI agent, such as Claude Code:
+
+```bash
+claude mcp add --scope user fast-compose -- fast-compose mcp
+```
+
+Download it for Windows, macOS or Linux from the [releases](https://github.com/fast-compose/compose-cli/releases); it
+includes its own Java runtime.
 
 ## Structure
 
