@@ -160,6 +160,8 @@ public class SourceLoader(
     private suspend fun candidates(program: Program, name: String): List<Candidate> {
         val import = program.imports.firstOrNull { !it.isStar && it.visibleName == name }
         if (import != null) {
+            // Nested classes of the resource classes, `import app.R.string`, come from the resource bindings too.
+            if (import.declarationName in RESOURCE_CLASSES) return emptyList()
             val packageName = import.declarationPackage
             if (isBound(packageName)) return emptyList()
             return listOf(Candidate(packageName, import.declarationName, true, isLibrary = isLibrary(packageName)))

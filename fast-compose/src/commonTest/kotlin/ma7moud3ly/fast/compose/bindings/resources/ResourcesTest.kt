@@ -23,6 +23,14 @@ class ResourcesTest {
     }
 
     @Test
+    fun importedResourceClasses() {
+        val code = "import app.R.string\nimport app.resources.Res.drawable\n\nfun test() = listOf(string.title, drawable.logo)"
+        val program = KotlinParser.parse(code).program
+        val registry = Registry().apply { install(ResourceBindings) }
+        assertEquals(listOf(ResourceRef("string", "title"), ResourceRef("drawable", "logo")), Interpreter(program, registry).call("test"))
+    }
+
+    @Test
     fun stringsXml() {
         val xml = """
             <resources>

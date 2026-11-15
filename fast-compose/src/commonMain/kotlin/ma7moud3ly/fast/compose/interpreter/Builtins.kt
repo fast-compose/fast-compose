@@ -530,6 +530,15 @@ internal class Builtins(private val interpreter: Interpreter) {
                 ) x else y
             }
 
+            "maxOf", "maxOfOrNull", "minOf", "minOfOrNull" -> {
+                val wantsMax = name.startsWith("max")
+                val best = list.map { call(fn, it) }.reduceOrNull { x, y ->
+                    val c = Operators.compare(x, y) as Int
+                    if (if (wantsMax) c >= 0 else c <= 0) x else y
+                }
+                if (best == null && !name.endsWith("OrNull")) throw InterpreterException("NoSuchElementException: Collection is empty")
+                best
+            }
             "maxByOrNull" -> list.maxByOrNull { call(fn, it) as Comparable<Any> }
             "minByOrNull" -> list.minByOrNull { call(fn, it) as Comparable<Any> }
             "sorted" -> list.sortedWith { x, y -> Operators.compare(x, y) as Int }

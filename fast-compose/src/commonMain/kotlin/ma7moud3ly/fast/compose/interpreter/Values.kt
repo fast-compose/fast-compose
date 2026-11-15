@@ -151,8 +151,18 @@ public class EnumValue internal constructor(decl: ClassDecl, public val name: St
     override fun toString(): String = name
 }
 
-/** A lambda with its captured scope. [label] is the name of the call it was passed to, for `return@label`. */
-public class LambdaValue internal constructor(internal val lambda: Lambda, internal val closure: Env, internal val label: String?) {
+/**
+ * A lambda with its captured scope. [label] is the name of the call it was passed to, for `return@label`.
+ * [receiverType] is the receiver of the function type it was passed as, e.g. `RowScope` for a parameter
+ * `content: RowScope.() -> Unit`; [boundReceiver] is the implicit receiver a call without one gives it.
+ */
+public class LambdaValue internal constructor(
+    internal val lambda: Lambda,
+    internal val closure: Env,
+    internal val label: String?,
+    internal val receiverType: String? = null,
+    internal val boundReceiver: Any? = null,
+) {
     override fun toString(): String = "(lambda)"
 }
 

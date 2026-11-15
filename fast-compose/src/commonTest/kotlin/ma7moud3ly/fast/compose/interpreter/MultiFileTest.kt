@@ -216,8 +216,10 @@ class MultiFileTest {
 
             import app.resources.Res
             import app.R
+            import app.R.string
+            import app.resources.Res.drawable
 
-            fun test() = Res.string.title + R.string.name
+            fun test() = Res.string.title + R.string.name + string.other + drawable.logo
             """,
         )
         assertEquals(emptyList(), SourceLoader(provider).load(main).missing)

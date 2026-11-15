@@ -5,7 +5,7 @@ import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Kotlin syntax found in real projects (REAL_PROJECTS.md P70–P81), parsed without errors and run as Kotlin does. */
+/** Kotlin found in real projects (REAL_PROJECTS.md P65–P83), parsed without errors and run as Kotlin does. */
 class KotlinSyntaxTest {
 
     private fun run(code: String): Any? {
@@ -109,5 +109,64 @@ class KotlinSyntaxTest {
             fun test() = listOf(Point(1, 2).y, Point(3).x, Point(3).label, Point("ab").x, Point("ab").label, Counter(5).count)
         """
         assertEquals(listOf(2, 3, "square", 4, "square!", 5), run(code))
+    }
+
+    @Test
+    fun enumEntriesInsideTheirOwnMembers() {
+        val code = """
+            enum class Layout {
+                Compact, Expanded;
+
+                val wide: Boolean get() = this == Expanded
+
+                fun count() = values().size + entries.size
+            }
+
+            fun test() = listOf(Layout.Expanded.wide, Layout.Compact.wide, Layout.Compact.count())
+        """
+        assertEquals(listOf(true, false, 4), run(code))
+    }
+
+    @Test
+    fun receiverLambdasGetTheCallersImplicitReceiver() {
+        val code = """
+            class Lane {
+                val name = "lane"
+            }
+
+            fun Lane.tag() = "tag of " + name
+
+            fun row(content: Lane.() -> String): String = with(Lane()) { content() }
+
+            fun toolbar(title: Lane.() -> String) = row { title() }
+
+            fun test() = toolbar { tag() }
+        """
+        assertEquals("tag of lane", run(code))
+    }
+
+    @Test
+    fun aClassAndAFunctionWithTheSameName() {
+        val code = """
+            data class Message(val author: String, val text: String, val time: String = "")
+
+            fun Message(message: Message, isFirst: Boolean, isLast: Boolean) = message.author + isFirst
+
+            fun test() = listOf(Message("ana", "hi", "8:02").text, Message(Message("bo", "yo"), true, false))
+        """
+        assertEquals(listOf("hi", "botrue"), run(code))
+    }
+
+    @Test
+    fun maxOfAndMinOfOnCollections() {
+        val code = """
+            fun test() = listOf(
+                listOf(3, 9, 4).maxOf { it * 2 },
+                listOf(3, 9, 4).minOf { it },
+                setOf(1.5, 0.5).maxOf { it },
+                emptyList<Int>().maxOfOrNull { it },
+            )
+        """
+        assertEquals(listOf(18, 3, 1.5, null), run(code))
     }
 }

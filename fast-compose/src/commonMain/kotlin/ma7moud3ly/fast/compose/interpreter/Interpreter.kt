@@ -242,17 +242,42 @@ public class Interpreter(
     }
 
     private fun invokeLambda(fn: LambdaValue, receiver: Any?, args: List<Any?>): Any? {
-        val env = fn.closure.child(receiver)
+        val env = fn.closure.child(receiverOf(fn, receiver))
         bindLambdaParams(fn, env, args)
         return lambdaResult(fn, evalBlock(fn.lambda.body, env))
     }
 
     @Composable
     private fun invokeLambdaC(fn: LambdaValue, receiver: Any?, args: List<Any?>): Any? {
-        val env = fn.closure.child(receiver)
+        val env = fn.closure.child(receiverOf(fn, receiver))
         val bound = guard { bindLambdaParams(fn, env, args) }
         if (bound is ErrorValue) return showIfError(bound)
         return lambdaResult(fn, evalBlockC(fn.lambda.body, env))
+    }
+
+    /** The receiver [fn] runs with: [receiver], or without one, the implicit receiver it was bound to. */
+    private fun receiverOf(fn: LambdaValue, receiver: Any?): Any? =
+        if (receiver === NoReceiver) fn.boundReceiver ?: NoReceiver else receiver
+
+    /**
+     * [value] for parameter [param]: a lambda passed as a function type with a receiver, `RowScope.() -> Unit`, keeps
+     * that type, so a call without a receiver gets the caller's implicit one (see [withImplicitReceiver]).
+     */
+    private fun typedArgument(param: Param, value: Any?): Any? {
+        if (value !is LambdaValue || value.receiverType != null) return value
+        val receiverType = param.type?.text?.let { RECEIVER_FUNCTION_TYPE.find(it)?.groupValues?.get(1) } ?: return value
+        return LambdaValue(value.lambda, value.closure, value.label, receiverType)
+    }
+
+    /**
+     * [value] bound to the innermost implicit receiver of its receiver type, for a call without a receiver: `title()`
+     * of a parameter `title: RowScope.() -> Unit` inside a `Row`, as Kotlin passes `this`.
+     */
+    private fun withImplicitReceiver(value: Any?, env: Env): Any? {
+        if (value !is LambdaValue || value.boundReceiver != null) return value
+        val type = value.receiverType ?: return value
+        val receiver = env.receivers.firstOrNull { runCatching { isInstance(it, type) }.getOrDefault(false) } ?: return value
+        return LambdaValue(value.lambda, value.closure, value.label, type, receiver)
     }
 
     private fun bindLambdaParams(fn: LambdaValue, env: Env, args: List<Any?>) {
@@ -369,6 +394,10 @@ public class Interpreter(
         return match.problems.isEmpty() && params.all { it.isVararg || it.default != null || it.name in match.values }
     }
 
+    /** True when the primary or a secondary constructor of [decl] takes [args]. */
+    private fun constructorAccepts(decl: ClassDecl, args: CallArgs): Boolean =
+        accepts(decl.constructorParams.map { it.param }, args) || decl.secondaryConstructors.any { accepts(it.params, args) }
+
     /** True when each positional argument is of its parameter's declared type, as far as [isInstance] can tell. */
     private fun fitsTypes(params: List<Param>, args: CallArgs): Boolean =
         args.positional.zip(params).all { (value, param) ->
@@ -393,7 +422,7 @@ public class Interpreter(
         val missing = mutableListOf<Param>()
         for (p in params) {
             when {
-                p.name in match.values -> env.define(p.name, match.values[p.name], mutable = false)
+                p.name in match.values -> env.define(p.name, typedArgument(p, match.values[p.name]), mutable = false)
                 p.default != null -> missing += p
                 lenient -> env.define(p.name, missingActualDefault(p, owner), mutable = false)
                 else -> throw InterpreterException("No value passed for parameter '${p.name}' of '$owner'")
@@ -417,9 +446,9 @@ public class Interpreter(
                     env.define(p.name, args.positional.drop(next), mutable = false)
                     next = args.positional.size
                 }
-                next < args.positional.size -> env.define(p.name, args.positional[next++], mutable = false)
+                next < args.positional.size -> env.define(p.name, typedArgument(p, args.positional[next++]), mutable = false)
                 i == params.lastIndex && args.trailing != null -> {
-                    env.define(p.name, args.trailing, mutable = false)
+                    env.define(p.name, typedArgument(p, args.trailing), mutable = false)
                     trailingUsed = true
                 }
                 p.default != null -> missing += p
@@ -885,7 +914,7 @@ public class Interpreter(
     private fun resolveCall(name: String, args: CallArgs, env: Env): Target? {
         // As in Kotlin, a variable is called only when it can be invoked; `items(…)` inside `LazyColumn` with a
         // parameter `items: LazyPagingItems` calls the scope's `items`.
-        env.find(name).let { if (it !== Unresolved && isInvocable(it, args)) return Target.Value(it) }
+        env.find(name).let { if (it !== Unresolved && isInvocable(it, args)) return Target.Value(withImplicitReceiver(it, env)) }
         for (receiver in env.receivers) resolveMemberCall(
             receiver,
             name,
@@ -896,14 +925,17 @@ public class Interpreter(
         if (externals != null) {
             for (receiver in env.receivers) externalMemberTarget(receiver, name, args, env, imported = false)?.let { return it }
         }
-        resolveFunction(name, args, extension = false, env.file)?.let {
-            return Target.UserFunction(
-                it,
-                NoReceiver,
-                null
-            )
+        val function = resolveFunction(name, args, extension = false, env.file)
+        val type = env.file.classes[name]
+        // A class and a function may share a name, e.g. `data class Message` and `@Composable fun Message(…)`: the
+        // arguments decide, as in Kotlin.
+        if (function != null && type != null && constructorAccepts(type, args) &&
+            !(accepts(paramsOf(function), args) && fitsTypes(paramsOf(function), args))
+        ) {
+            return Target.Constructor(type)
         }
-        env.file.classes[name]?.let { return Target.Constructor(it) }
+        function?.let { return Target.UserFunction(it, NoReceiver, null) }
+        type?.let { return Target.Constructor(it) }
         if (name in GLOBAL_INTRINSICS) return Target.Intrinsic(name, NoReceiver)
         explicitExternal(name, env.file)?.let { return externalTarget(it, null, args, name) }
         registry.findComposable(name, args.shape)?.let { return Target.RegistryComposable(it) }
@@ -990,6 +1022,10 @@ public class Interpreter(
                 companion(receiver.decl)?.takeIf { it !== receiver }?.let { companion ->
                     findMethod(companion.decl, name, args)?.let { return Target.UserFunction(it, companion, null) }
                 }
+                // `values()` and `valueOf(…)` inside an enum's own members.
+                if (receiver.decl.kind == ClassKind.ENUM && (name == "values" || name == "valueOf")) {
+                    return resolveMemberCall(ClassRef(receiver.decl), name, args, env)
+                }
                 if (receiver is ObjectValue && receiver.decl.kind == ClassKind.DATA_CLASS) {
                     if (name == "copy") return Target.Plain { copy(receiver, args) }
                     if (name.startsWith("component")) {
@@ -1060,12 +1096,8 @@ public class Interpreter(
 
     private fun resolveExtension(name: String, receiver: Any?, args: CallArgs, env: Env): FunDecl? =
         env.file.functions[name]?.filter { decl ->
-            decl.receiver?.let {
-                isInstance(
-                    receiver,
-                    it.text
-                )
-            } == true
+            // A receiver type the interpreter doesn't know can't match, e.g. a library type in another extension.
+            decl.receiver?.let { runCatching { isInstance(receiver, it.text) }.getOrDefault(false) } == true
         }
             ?.let { candidates ->
                 candidates.firstOrNull { accepts(it.params, args) } ?: candidates.firstOrNull()
@@ -1194,7 +1226,7 @@ public class Interpreter(
 
     private fun isKnownName(name: String, env: Env): Boolean =
         env.contains(name) || name in env.file.properties || name in env.file.classes || name in env.file.functions ||
-                registry.isGlobalName(name) ||
+                name in env.file.memberImports || registry.isGlobalName(name) ||
                 builtins.globalValue(name) !== Unresolved || env.receivers.any {
             hasProperty(
                 it,
@@ -1219,12 +1251,13 @@ public class Interpreter(
     }
 
     /**
-     * True when [name] is a member of [value]'s companion object, or, for a companion object, an entry or nested class
-     * of its class: names visible without a qualifier inside the class.
+     * True when [name] is a member of [value]'s companion object, an entry of its enum, or, for a companion object, an
+     * entry or nested class of its class: names visible without a qualifier inside the class.
      */
     private fun hasClassMember(value: UserValue, name: String): Boolean {
         val companion = companion(value.decl)?.takeIf { it !== value }
         if (companion != null && (companion.hasField(name) || findGetter(companion.decl, name) != null)) return true
+        if (value.decl.kind == ClassKind.ENUM && staticMember(value.decl, name) != null) return true
         val outer = outerClassOf(value.decl) ?: return false
         return staticMember(outer, name) != null
     }
@@ -1353,6 +1386,8 @@ public class Interpreter(
                     if (value !== Unresolved) return value
                 }
                 outerClassOf(receiver.decl)?.let { outer -> staticMember(outer, name)?.let { return it } }
+                // Inside an enum's members, its entries need no qualifier, e.g. `this == Expanded`.
+                if (receiver.decl.kind == ClassKind.ENUM) staticMember(receiver.decl, name)?.let { return it }
             }
 
             is ClassRef -> {
@@ -1411,6 +1446,7 @@ public class Interpreter(
     private fun importedExternal(name: String, file: FileScope): ExternalSymbol? {
         if (externals == null || name in INJECTION_CALLS || name in RESOURCE_CLASSES) return null
         val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
+        if (import != null && import.declarationName in RESOURCE_CLASSES) return null
         return when {
             import != null && import.memberPath.isEmpty() -> externalSymbol(import.declarationPackage, import.declarationName)
             import != null -> importedExternalMember(import)
@@ -2837,7 +2873,7 @@ public class Interpreter(
     private suspend fun invokeSuspend(fn: Any?, receiver: Any?, args: List<Any?>): Any? =
         when (fn) {
             is LambdaValue -> {
-                val env = fn.closure.child(receiver)
+                val env = fn.closure.child(receiverOf(fn, receiver))
                 bindLambdaParams(fn, env, args)
                 lambdaResult(fn, evalBlockS(fn.lambda.body, env))
             }
@@ -3347,12 +3383,15 @@ public class Interpreter(
          */
         val LAMBDA_COLLECTION_FUNCTIONS = setOf(
             "map", "mapIndexed", "mapNotNull", "flatMap", "filter", "filterNot", "filterIndexed", "any", "all", "none",
-            "count", "sumOf", "maxByOrNull", "minByOrNull", "sortedBy", "sortedByDescending", "groupBy", "associateWith",
+            "count", "sumOf", "maxOf", "minOf", "maxOfOrNull", "minOfOrNull", "maxByOrNull", "minByOrNull", "sortedBy", "sortedByDescending", "groupBy", "associateWith",
             "associateBy", "joinToString", "first", "last", "firstOrNull", "lastOrNull", "find",
         )
 
         /** Functions that run their trailing lambda once or not at all, also in the caller's evaluator. */
         val SINGLE_LAMBDA_FUNCTIONS = setOf("ifEmpty", "ifBlank", "takeIf", "takeUnless", "getOrElse")
+
+        /** A function type with a receiver, `@Composable RowScope.() -> Unit`; the group is the receiver type. */
+        val RECEIVER_FUNCTION_TYPE = Regex("""^\(?\s*(?:@[\w.]+\s+)*(?:suspend\s+)?([A-Za-z_][\w.]*)(?:<[^()]*>)?\??\.\(""")
 
         /** Resource classes generated by the build, which the resource bindings provide. */
         val RESOURCE_CLASSES = setOf("Res", "R")
