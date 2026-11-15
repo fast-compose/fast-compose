@@ -60,6 +60,11 @@ private class ReferenceWalker {
                 }
                 stmt.members.forEach(::stmt)
                 stmt.initBlocks.forEach(::block)
+                stmt.secondaryConstructors.forEach { constructor ->
+                    constructor.params.forEach(::param)
+                    constructor.delegation?.forEach { expr(it.value) }
+                    constructor.body?.let(::block)
+                }
             }
             is PropertyDecl -> {
                 declared += stmt.name

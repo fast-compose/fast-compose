@@ -49,6 +49,7 @@ public class Parser(private val tokens: List<Token>) {
                     parseAnnotation() // file annotations such as @file:OptIn(...)
                     continue
                 }
+                if (skipTypeAlias()) continue
                 declarations += parseDeclarationOrNull() ?: throw error("Expected a declaration, found ${describe(cur())}")
             } catch (_: ParseException) {
                 // Already reported as a diagnostic; parsing resumes at the next declaration.
@@ -327,7 +328,10 @@ public class Parser(private val tokens: List<Token>) {
         }
         skipTypeParameters()
 
-        if (isSoft("constructor") || (at(AT) && kind != ClassKind.OBJECT)) {
+        // `constructor`, with annotations or a visibility: `internal constructor(…)`.
+        if (isSoft("constructor") || (at(AT) && kind != ClassKind.OBJECT) ||
+            (cur().text in visibilityWords && peekAfter().text == "constructor")
+        ) {
             parseModifiers()
             if (isSoft("constructor")) advance()
         }
@@ -350,6 +354,7 @@ public class Parser(private val tokens: List<Token>) {
         var entries = emptyList<EnumEntry>()
         val members = mutableListOf<Decl>()
         val initBlocks = mutableListOf<Block>()
+        val secondaryConstructors = mutableListOf<SecondaryConstructor>()
         if (nextNonNewline().type == LBRACE) {
             skipNewlines()
             expect(LBRACE, "'{'")
@@ -362,6 +367,8 @@ public class Parser(private val tokens: List<Token>) {
                         if (isSoft("init") && peekAfter().type == LBRACE) {
                             advance()
                             initBlocks += parseBlock()
+                        } else if (startsSecondaryConstructor()) {
+                            secondaryConstructors += parseSecondaryConstructor()
                         } else {
                             members += parseDeclarationOrNull() ?: throw error("Expected a member declaration, found ${describe(cur())}")
                         }
@@ -373,7 +380,62 @@ public class Parser(private val tokens: List<Token>) {
                 expect(RBRACE, "'}'")
             }
         }
-        return ClassDecl(id(), spanFrom(start), name, kind, constructorParams, superTypes, entries, members, initBlocks, "private" in modifiers.words)
+        return ClassDecl(
+            id(), spanFrom(start), name, kind, constructorParams, superTypes, entries, members, initBlocks,
+            "private" in modifiers.words, secondaryConstructors,
+        )
+    }
+
+    /** True when a secondary `constructor(…)` starts here, after its annotations and modifiers. */
+    private fun startsSecondaryConstructor(): Boolean {
+        val saved = pos
+        parseModifiers()
+        val starts = isSoft("constructor") && peekAfter().type == LPAREN
+        pos = saved
+        return starts
+    }
+
+    /** Parses `constructor(…) : this(…) { … }`; the delegation and the body are optional. */
+    private fun parseSecondaryConstructor(): SecondaryConstructor {
+        parseModifiers()
+        advance() // constructor
+        val params = parseParams()
+        var delegation: List<Arg>? = null
+        if (nextNonNewline().type == COLON) {
+            skipNewlines()
+            advance()
+            skipNewlines()
+            val target = advance()
+            val args = parseCallArgs()
+            if (target.type == THIS) delegation = args
+        }
+        val body = if (nextNonNewline().type == LBRACE) {
+            skipNewlines()
+            parseBlock()
+        } else {
+            null
+        }
+        return SecondaryConstructor(params, delegation, body)
+    }
+
+    /**
+     * Skips a top-level `typealias Name<T> = Type`, with its annotations and modifiers, and returns true; returns
+     * false, at the same position, when none starts here. Types are not checked, so aliases need nothing at runtime.
+     */
+    private fun skipTypeAlias(): Boolean {
+        val saved = pos
+        parseModifiers()
+        if (!isSoft("typealias")) {
+            pos = saved
+            return false
+        }
+        advance()
+        expect(IDENTIFIER, "a type alias name")
+        skipTypeParameters()
+        expect(ASSIGN, "'='")
+        skipNewlines()
+        parseType()
+        return true
     }
 
     private fun parseConstructorParams(): List<PropertyParam> = inParens {
@@ -433,7 +495,8 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun skipType() {
         while (at(AT)) parseAnnotation()
-        if (isSoft("suspend") && peekAfter().type == LPAREN) advance()
+        // `suspend () -> Unit`, and with a receiver, `suspend CoroutineScope.() -> Unit`.
+        if (isSoft("suspend") && peekAfter().type in setOf(LPAREN, IDENTIFIER)) advance()
         if (at(LPAREN)) {
             inParens {
                 advance()
@@ -723,12 +786,21 @@ public class Parser(private val tokens: List<Token>) {
                 }
                 LPAREN -> {
                     val args = parseCallArgs()
-                    val lambda = if (at(LBRACE)) parseLambda() else null
+                    val lambda = when {
+                        at(LBRACE) -> parseLambda()
+                        labeledLambdaAt() -> parseLabeledLambda()
+                        else -> null
+                    }
                     Call(id(), span(), expr, args, lambda)
                 }
                 LBRACE -> {
                     if (!isCallable(expr)) return expr
                     Call(id(), span(), expr, emptyList(), parseLambda())
+                }
+                // A labeled trailing lambda, `items.forEach each@{ … }`.
+                IDENTIFIER -> {
+                    if (!isCallable(expr) || !labeledLambdaAt()) return expr
+                    Call(id(), span(), expr, emptyList(), parseLabeledLambda())
                 }
                 LT -> {
                     if (expr !is Ident && expr !is Member) return expr
@@ -764,6 +836,20 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
+    /** True when a labeled lambda, `name@{ … }`, starts at the current token. */
+    private fun labeledLambdaAt(): Boolean {
+        val t = cur()
+        return t.type == IDENTIFIER && tokens[pos + 1].type == AT && tokens[pos + 1].start == t.end &&
+            tokens[pos + 2].type == LBRACE
+    }
+
+    /** Parses `name@{ … }`, a lambda that `return@name` returns from. */
+    private fun parseLabeledLambda(): Lambda {
+        val label = advance().value
+        advance()
+        return parseLambda().copy(label = label)
+    }
+
     /** A trailing lambda attaches only to names, member accesses and calls without one. */
     private fun isCallable(expr: Expr): Boolean =
         expr is Ident || expr is Member || (expr is Call && expr.trailingLambda == null)
@@ -781,11 +867,11 @@ public class Parser(private val tokens: List<Token>) {
             }
             FLOAT -> {
                 advance()
-                FloatLit(id(), spanFrom(t), t.text.replace("_", "").dropLast(1).toFloat())
+                FloatLit(id(), spanFrom(t), t.value.replace("_", "").dropLast(1).toFloat())
             }
             DOUBLE -> {
                 advance()
-                DoubleLit(id(), spanFrom(t), t.text.replace("_", "").toDouble())
+                DoubleLit(id(), spanFrom(t), t.value.replace("_", "").toDouble())
             }
             CHAR -> {
                 advance()
@@ -812,6 +898,7 @@ public class Parser(private val tokens: List<Token>) {
                         advance()
                         ThrowExpr(id(), spanFrom(t), parseExpression())
                     }
+                    labeledLambdaAt() -> parseLabeledLambda()
                     else -> {
                         advance()
                         Ident(id(), spanFrom(t), t.value)
@@ -1085,6 +1172,8 @@ public class Parser(private val tokens: List<Token>) {
                     if (!match(ELSE)) {
                         do {
                             skipNewlines()
+                            // A trailing comma may end the conditions: `A, B, -> …`.
+                            if (conditions.isNotEmpty() && at(ARROW)) break
                             conditions += parseWhenCondition()
                         } while (match(COMMA))
                     }
@@ -1255,11 +1344,13 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun startsDeclaration(t: Token) = when (t.type) {
         FUN, VAL, VAR, CLASS, OBJECT, AT -> true
-        IDENTIFIER -> t.text in modifierWords || t.text == "interface" || t.text == "import"
+        IDENTIFIER -> t.text in modifierWords || t.text == "interface" || t.text == "import" || t.text == "typealias"
         else -> false
     }
 
     private companion object {
+        val visibilityWords = setOf("private", "public", "internal", "protected")
+
         /** Modifiers that may come before a property accessor. */
         val accessorModifiers = setOf("private", "public", "internal", "protected", "inline", "external")
         val modifierWords = setOf(

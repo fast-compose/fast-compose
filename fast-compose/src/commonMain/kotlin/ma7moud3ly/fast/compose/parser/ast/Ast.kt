@@ -106,7 +106,14 @@ public data class ClassDecl(
     val members: List<Decl>,
     val initBlocks: List<Block>,
     val isPrivate: Boolean = false,
+    val secondaryConstructors: List<SecondaryConstructor> = emptyList(),
 ) : Decl
+
+/**
+ * A secondary constructor, `constructor(…) : this(…) { … }`. [delegation] holds the arguments of `this(…)`; it is null
+ * without a delegation or for `super(…)`. [body] is null without a body.
+ */
+public data class SecondaryConstructor(val params: List<Param>, val delegation: List<Arg>?, val body: Block?)
 
 public data class EnumEntry(val name: String, val args: List<Arg>)
 
@@ -229,13 +236,17 @@ public data class Call(
 
 public data class Index(override val id: Int, override val span: Span, val receiver: Expr, val indices: List<Expr>) : Expr
 
-/** Lambda; a destructured parameter `(a, b)` is named `_` in [params] and its names are in [destructured] by index. */
+/**
+ * Lambda; a destructured parameter `(a, b)` is named `_` in [params] and its names are in [destructured] by index.
+ * [label] is an explicit label, `name@{ … }`, for `return@name`.
+ */
 public data class Lambda(
     override val id: Int,
     override val span: Span,
     val params: List<String>,
     val body: Block,
     val destructured: Map<Int, List<String>> = emptyMap(),
+    val label: String? = null,
 ) : Expr
 
 /** `try { } catch (e: Type) { } finally { }`; usable as an expression. */

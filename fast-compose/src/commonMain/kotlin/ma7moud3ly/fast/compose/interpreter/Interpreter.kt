@@ -322,9 +322,14 @@ public class Interpreter(
         )
     }
 
-    /** `return@label` ends the lambda; other jumps propagate to the enclosing function. */
-    private fun lambdaResult(fn: LambdaValue, result: Any?): Any? =
-        if (result is Jump && result.kind == Jump.Kind.RETURN && result.label != null && result.label == fn.label) result.value else result
+    /**
+     * `return@label` ends the lambda, by its own label (`name@{ … }`) or else the name of the call it was passed to;
+     * other jumps propagate to the enclosing function.
+     */
+    private fun lambdaResult(fn: LambdaValue, result: Any?): Any? {
+        val label = fn.lambda.label ?: fn.label
+        return if (result is Jump && result.kind == Jump.Kind.RETURN && result.label != null && result.label == label) result.value else result
+    }
 
     private fun suspendFromPlain(name: String) =
         InterpreterException("Suspend function '$name' should be called only from a coroutine, e.g. inside LaunchedEffect or launch { }")
@@ -363,6 +368,13 @@ public class Interpreter(
         val match = matchParams(params, args, "function")
         return match.problems.isEmpty() && params.all { it.isVararg || it.default != null || it.name in match.values }
     }
+
+    /** True when each positional argument is of its parameter's declared type, as far as [isInstance] can tell. */
+    private fun fitsTypes(params: List<Param>, args: CallArgs): Boolean =
+        args.positional.zip(params).all { (value, param) ->
+            val type = param.type?.text
+            param.isVararg || type == null || runCatching { isInstance(value, type) }.getOrDefault(true)
+        }
 
     private fun matchParams(params: List<Param>, args: CallArgs, owner: String): Signature.Match =
         Signature.forParameters(owner, params.map { it.name }, params.firstOrNull { it.isVararg }?.name).match(args.shape)
@@ -580,8 +592,47 @@ public class Interpreter(
             else -> Unit
         }
         val obj = ObjectValue(decl)
-        initialize(obj, args)
+        construct(obj, args)
         return obj
+    }
+
+    /**
+     * Runs the constructor of [value]'s class that takes [args]: the primary one, or else a secondary one, which first
+     * runs the constructor its `this(…)` delegates to (or the primary one without arguments) and then its own body.
+     */
+    private fun construct(value: ObjectValue, args: CallArgs) {
+        val decl = value.decl
+        if (decl.secondaryConstructors.isEmpty()) return initialize(value, args)
+        val primary = decl.constructorParams.map { it.param }
+        // Null stands for the primary constructor. Arguments of the declared types win, as Kotlin picks overloads.
+        val candidates = listOf(null) + decl.secondaryConstructors
+        fun paramsOf(constructor: SecondaryConstructor?) = constructor?.params ?: primary
+        val chosen = candidates.indexOfFirst { accepts(paramsOf(it), args) && fitsTypes(paramsOf(it), args) }
+            .takeIf { it >= 0 } ?: candidates.indexOfFirst { accepts(paramsOf(it), args) }
+        val secondary = candidates.getOrNull(chosen) ?: return initialize(value, args)
+        enter(decl.name)
+        try {
+            val env = (value.closure ?: scopeOf(decl).root).child(value)
+            for (p in bindParams(secondary.params, args, env, decl.name)) {
+                val default = p.default ?: continue
+                env.define(p.name, defaultValue(p, default, env), mutable = false)
+            }
+            val delegation = secondary.delegation
+            if (delegation == null) {
+                initialize(value, CallArgs.Empty)
+            } else {
+                val arguments = mutableListOf<EvaluatedArgument>()
+                for (arg in delegation) {
+                    val argValue = eval(arg.value, env)
+                    if (arg.isSpread && arg.name == null) spread(argValue).forEach { arguments += EvaluatedArgument(null, it) }
+                    else arguments += EvaluatedArgument(arg.name, argValue)
+                }
+                construct(value, CallArgs.ordered(arguments, trailing = null))
+            }
+            secondary.body?.let { evalBlock(it, env.child()) }
+        } finally {
+            depth--
+        }
     }
 
     private fun initialize(value: UserValue, args: CallArgs) {

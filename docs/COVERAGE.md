@@ -8,8 +8,8 @@ Numbers are for version 0.2.0, checked against the Jetpack Compose 1.12 API (Com
 
 ## What it can run
 
-**Kotlin.** Functions, default and named arguments, lambdas, classes, data classes, objects, enums, interfaces,
-extension functions and properties, `when`, ranges, string templates, destructuring, `try`/`catch`/`throw`, collections
+**Kotlin.** Functions, default and named arguments, lambdas (also labeled), classes with secondary constructors, data
+classes, objects, enums, interfaces, type aliases, extension functions and properties, `when`, ranges, string templates, destructuring, `try`/`catch`/`throw`, collections
 and their common operations, delegated properties (`by remember`), and coroutines (`LaunchedEffect`, `launch`,
 `delay`, `suspend` functions, `Flow`).
 
