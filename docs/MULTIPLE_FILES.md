@@ -73,7 +73,10 @@ Found files are parsed and searched the same way, until no new declaration is re
   reported.
 - **Member imports:** `import app.Settings.isDark` or `import app.Mode.DARK` is looked up through the class or
   object that declares the member, by Kotlin's naming conventions (the first capitalized segment).
-- **Resources:** `Res` and `R` are never looked up; the resource bindings provide them, whatever their package.
+- **Annotations:** annotation names are followed too, so a multi-preview annotation class such as `@DevicePreviews`
+  loads from the file that declares it.
+- **Resources:** `Res` and `R` are never looked up, nor imports through them (`import app.R.string`); the resource
+  bindings provide them, whatever their package.
 - **Libraries:** names from library packages come from bindings, or on the JVM from the library's jars (see
   [Library code on the JVM](LIBRARY.md#library-code-on-the-jvm)).
 - **Caching:** files are cached by path and text. A file with parse errors keeps its last version without errors.
@@ -100,4 +103,5 @@ Only the previewed file's `@Preview` functions are shown.
 ## Checking for previews
 
 `KotlinParser.hasPreviews(source)` tells whether a file has a `@Preview` annotation without parsing it, using only
-the lexer. Hosts can call it on every change to decide whether a file is worth previewing.
+the lexer. Annotations with `Preview` in their name count too, such as `@DevicePreviews` or `@PreviewLightDark`, since
+they may be multi-preview annotations. Hosts can call it on every change to decide whether a file is worth previewing.
