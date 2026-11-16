@@ -295,18 +295,18 @@ public class Parser(private val tokens: List<Token>) {
         val params = mutableListOf<Param>()
         while (!at(RPAREN)) {
             val modifiers = parseModifiers()
-            params += parseParam(isVararg = "vararg" in modifiers.words)
+            params += parseParam(isVararg = "vararg" in modifiers.words, modifiers.annotations)
             if (!match(COMMA)) break
         }
         expect(RPAREN, "')'")
         params
     }
 
-    private fun parseParam(isVararg: Boolean): Param {
+    private fun parseParam(isVararg: Boolean, annotations: List<AnnotationRef> = emptyList()): Param {
         val name = expect(IDENTIFIER, "a parameter name").value
         val type = if (match(COLON)) parseType() else null
         val default = if (match(ASSIGN)) parseExpression() else null
-        return Param(name, type, default, isVararg)
+        return Param(name, type, default, isVararg, annotations)
     }
 
     /** Parses a class, object or interface; with [anonymous], the class of an `object : … { … }` expression. */
@@ -382,7 +382,7 @@ public class Parser(private val tokens: List<Token>) {
         }
         return ClassDecl(
             id(), spanFrom(start), name, kind, constructorParams, superTypes, entries, members, initBlocks,
-            "private" in modifiers.words, secondaryConstructors,
+            "private" in modifiers.words, secondaryConstructors, modifiers.annotations,
         )
     }
 
@@ -1369,8 +1369,9 @@ public class Parser(private val tokens: List<Token>) {
 public object KotlinParser {
     /**
      * True if [source] has a `@Preview` annotation, written `@Preview` or qualified like
-     * `@androidx.compose.ui.tooling.preview.Preview`, without parsing it. Comments, strings and imports don't count.
-     * Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
+     * `@androidx.compose.ui.tooling.preview.Preview`, or one that may be a multi-preview annotation: a name with
+     * `Preview` in it, such as `@DevicePreviews` or `@PreviewLightDark`. Checked without parsing; comments, strings and
+     * imports don't count. Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
      */
     public fun hasPreviews(source: String): Boolean {
         val tokens = Lexer(source).tokenize()
@@ -1383,7 +1384,7 @@ public object KotlinParser {
                 if (tokens.getOrNull(j + 1)?.type != TokenType.DOT) break
                 j += 2
             }
-            if (name == "Preview") return true
+            if (name != null && "Preview" in name && name != "PreviewParameter") return true
         }
         return false
     }

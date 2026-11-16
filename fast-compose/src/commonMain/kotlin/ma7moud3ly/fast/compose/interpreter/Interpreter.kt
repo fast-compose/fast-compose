@@ -126,15 +126,38 @@ public class Interpreter(
 
     // ---------- Entry points ----------
 
-    /** Renders [entry], a no-arg composable function. */
+    /** Renders [entry], a composable function, called with [arguments], e.g. a `@PreviewParameter` value. */
     @Composable
-    public fun Render(entry: FunDecl) {
+    public fun Render(entry: FunDecl, arguments: List<Any?> = emptyList()) {
         // A new composition of the preview; also clears a count left behind by a composition that crashed.
         running = 0
         startRun()
         running++
-        showIfError(callFunctionC(entry, NoReceiver, CallArgs.Empty, null))
+        showIfError(callFunctionC(entry, NoReceiver, if (arguments.isEmpty()) CallArgs.Empty else CallArgs(arguments), null))
         running--
+    }
+
+    /** The class or annotation class [name] that the file of [decl] sees: its own, imported or in its package. */
+    internal fun classVisibleFrom(decl: Decl, name: String): ClassDecl? = scopeOf(decl).classes[name]
+
+    /**
+     * Values of a `PreviewParameterProvider` for a parameter of [function]: [provider] is the annotation's
+     * `Provider::class`, evaluated in [function]'s file; an instance's `values` (a sequence or list) as a list. Failures
+     * are reported and give no values.
+     */
+    internal fun previewParameterValues(function: FunDecl, provider: Expr): List<Any?> = entry {
+        try {
+            val type = eval(provider, scopeOf(function).root) as? ClassRef
+                ?: throw InterpreterException("@PreviewParameter needs a provider class, such as Provider::class")
+            when (val values = getMember(instantiate(type.decl, CallArgs.Empty), "values")) {
+                is Iterable<*> -> values.toList()
+                is Array<*> -> values.toList()
+                else -> throw InterpreterException("'values' of ${type.decl.name} is not a sequence or list")
+            }
+        } catch (e: InterpreterException) {
+            report("@PreviewParameter of '${function.name}': ${e.message}")
+            emptyList()
+        }
     }
 
     /** Calls a top-level non-composable function and returns its result. */

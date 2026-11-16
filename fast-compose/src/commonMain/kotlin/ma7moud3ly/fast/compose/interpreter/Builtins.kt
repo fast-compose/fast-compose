@@ -55,9 +55,11 @@ internal class Builtins(private val interpreter: Interpreter) {
     fun global(name: String, args: CallArgs): Any? {
         val a = args.positional
         return when (name) {
+            // Sequences are lists here: previews take few values, e.g. a `PreviewParameterProvider`'s `values`.
+            "sequenceOf",
             "listOf", "arrayOf", "floatArrayOf", "intArrayOf", "longArrayOf", "doubleArrayOf", "booleanArrayOf", "charArrayOf" -> a
             "mutableListOf", "arrayListOf" -> a.toMutableList()
-            "emptyList", "emptyArray" -> emptyList<Any?>()
+            "emptyList", "emptyArray", "emptySequence" -> emptyList<Any?>()
             "listOfNotNull" -> a.filterNotNull()
             "setOf" -> a.toSet()
             "mutableSetOf" -> a.toMutableSet()
@@ -588,6 +590,7 @@ internal class Builtins(private val interpreter: Interpreter) {
             "plus" -> list + (a[0] as? Iterable<Any?> ?: listOf(a[0]))
             "minus" -> list - (a[0] as? Iterable<Any?>)?.toSet().orEmpty().ifEmpty { setOf(a[0]) }
             "toList" -> list.toList()
+            "asSequence" -> list
             "toMutableList" -> list.toMutableList()
             "toSet" -> list.toSet()
             "toSortedSet" -> list.sortedWith(comparator(a.firstOrNull())).toCollection(LinkedHashSet())

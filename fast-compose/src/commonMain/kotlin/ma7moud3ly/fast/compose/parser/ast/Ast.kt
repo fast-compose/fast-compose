@@ -71,7 +71,14 @@ public data class AnnotationRef(val name: String, val args: List<Arg>)
 /** Type as written in source; the interpreter uses it only for hints and error messages. */
 public data class TypeRef(val text: String)
 
-public data class Param(val name: String, val type: TypeRef?, val default: Expr?, val isVararg: Boolean = false)
+/** A parameter; [annotations] such as `@PreviewParameter(…)`. */
+public data class Param(
+    val name: String,
+    val type: TypeRef?,
+    val default: Expr?,
+    val isVararg: Boolean = false,
+    val annotations: List<AnnotationRef> = emptyList(),
+)
 
 /** Function declaration; [body] is null for functions without a body (e.g. in interfaces). Expression bodies become a block with one [ReturnStmt]. */
 public data class FunDecl(
@@ -107,6 +114,8 @@ public data class ClassDecl(
     val initBlocks: List<Block>,
     val isPrivate: Boolean = false,
     val secondaryConstructors: List<SecondaryConstructor> = emptyList(),
+    /** Annotations on the class, e.g. the `@Preview`s of a multi-preview `annotation class`. */
+    val annotations: List<AnnotationRef> = emptyList(),
 ) : Decl
 
 /**

@@ -1,6 +1,7 @@
 package ma7moud3ly.fast.compose.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -49,13 +51,16 @@ import ma7moud3ly.fast.compose.parser.ast.Program
 /**
  * Lightweight preview of every `@Preview` in [code], using only foundation APIs.
  * Supports layouts, `Text`, state, modifiers, drawing and animation; Material components, icons, resources and network
- * images show a hint instead. Use [FastComposePreview] for the full API.
+ * images show a hint instead. Use [FastComposePreview] for the full API. [frameSize] and [zoom] work as in
+ * [FastComposePreview].
  */
 @Composable
 public fun BasicComposePreview(
     code: ComposeCode,
     modifier: Modifier = Modifier,
     registry: Registry = rememberBasicRegistry(),
+    frameSize: DpSize? = null,
+    zoom: Float = 1f,
 ) {
     PreviewList(
         code = code,
@@ -64,6 +69,8 @@ public fun BasicComposePreview(
         modifier = modifier,
         label = { BasicText(it, style = TextStyle(color = Color.Gray, fontSize = 12.sp)) },
         frame = { config, size, content -> BasicFrame(config, size, content) },
+        frameSize = frameSize,
+        zoom = zoom,
     )
 }
 
@@ -89,8 +96,11 @@ private val DARK_BACKGROUND = Color(0xFF121212)
 internal val FRAME_BORDER = Color(0x33000000)
 
 /**
- * Lists every `@Preview` of [code] in a scrollable column. Each preview gets a [label] and a [frame];
- * the frame receives a size modifier that applies `widthDp`/`heightDp` or wraps content up to the visible area.
+ * Lists every preview of [code] ([previews]: `@Preview`s, multi-preview annotations and `@PreviewParameter` values) in
+ * a scrollable column, sharing one interpreter. Each preview gets a [label] and a [frame]; the frame receives a size
+ * modifier that applies `widthDp`/`heightDp` or wraps content up to the visible area, or up to [frameSize] when set.
+ * With a [frameSize], the list scrolls both ways and is centered. [zoom] scales the frames through their density, so
+ * previews lay out at their own size and stay sharp; labels keep the host's size.
  */
 @Composable
 internal fun PreviewList(
@@ -100,6 +110,8 @@ internal fun PreviewList(
     modifier: Modifier,
     label: @Composable (String) -> Unit,
     frame: @Composable (config: PreviewConfig, size: Modifier, content: @Composable () -> Unit) -> Unit,
+    frameSize: DpSize? = null,
+    zoom: Float = 1f,
 ) {
     val program = code.program
     if (program == null) {
@@ -107,52 +119,48 @@ internal fun PreviewList(
         return
     }
     val interpreter = rememberInterpreter(code, program, registry, resources)
-    val previews = remember(interpreter) {
-        program.previews.map { (function, annotation) ->
-            function to interpreter.previewConfig(
-                function,
-                annotation
-            )
-        }
-    }
+    val previews = remember(interpreter) { interpreter.previews(program) }
     if (previews.isEmpty()) {
         Box(modifier.padding(16.dp)) { label("No preview yet. Add @Preview to a @Composable function.") }
         return
     }
+    val scale = zoom.coerceAtLeast(MIN_ZOOM)
+    val baseDensity = LocalDensity.current
     BoxWithConstraints(modifier) {
-        val maxFrameWidth = (maxWidth - 32.dp).coerceAtLeast(MIN_FRAME)
-        val maxFrameHeight = (maxHeight - 64.dp).coerceAtLeast(MIN_FRAME)
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
-            previews.forEachIndexed { index, (function, config) ->
-                key(function.name, index) {
-                    Column {
-                        Box(Modifier.padding(bottom = 6.dp)) { label(config.label()) }
-                        val size = Modifier
-                            .then(
-                                if (config.widthDp != null) Modifier.width(config.widthDp.dp) else Modifier.widthIn(
-                                    max = maxFrameWidth
-                                )
-                            )
-                            .then(
-                                if (config.heightDp != null) Modifier.height(config.heightDp.dp) else Modifier.heightIn(
-                                    max = maxFrameHeight
-                                )
-                            )
-                        frame(config, size) {
-                            CompositionLocalProvider(
-                                LocalResourceProvider provides resources,
-                                LocalResourceEnvironment provides ResourceEnvironment(config.locale, config.darkTheme),
-                                LocalPreviewDarkTheme provides config.darkTheme,
-                                LocalInspectionMode provides true,
-                                LocalPreviewWindowSize provides DpSize(
-                                    config.widthDp?.dp ?: maxFrameWidth,
-                                    config.heightDp?.dp ?: maxFrameHeight,
-                                ),
-                            ) {
-                                interpreter.Render(function)
+        val maxFrameWidth = frameSize?.width ?: ((maxWidth - 32.dp) / scale).coerceAtLeast(MIN_FRAME)
+        val maxFrameHeight = frameSize?.height ?: ((maxHeight - 64.dp) / scale).coerceAtLeast(MIN_FRAME)
+        val panelWidth = maxWidth
+        val scrolling = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        Box(if (frameSize != null) scrolling.horizontalScroll(rememberScrollState()) else scrolling) {
+            Column(
+                modifier = Modifier.then(if (frameSize != null) Modifier.widthIn(min = panelWidth) else Modifier).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalAlignment = if (frameSize != null) Alignment.CenterHorizontally else Alignment.Start,
+            ) {
+                previews.forEachIndexed { index, preview ->
+                    val config = preview.config
+                    key(preview.function.name, index) {
+                        Column {
+                            Box(Modifier.padding(bottom = 6.dp)) { label(config.label()) }
+                            val size = Modifier
+                                .then(if (config.widthDp != null) Modifier.width(config.widthDp.dp) else Modifier.widthIn(max = maxFrameWidth))
+                                .then(if (config.heightDp != null) Modifier.height(config.heightDp.dp) else Modifier.heightIn(max = maxFrameHeight))
+                            // Frames read the zoomed density, so their dp sizes and content scale together.
+                            CompositionLocalProvider(LocalDensity provides Density(baseDensity.density * scale, baseDensity.fontScale)) {
+                                frame(config, size) {
+                                    CompositionLocalProvider(
+                                        LocalResourceProvider provides resources,
+                                        LocalResourceEnvironment provides ResourceEnvironment(config.locale, config.darkTheme),
+                                        LocalPreviewDarkTheme provides config.darkTheme,
+                                        LocalInspectionMode provides true,
+                                        LocalPreviewWindowSize provides DpSize(
+                                            config.widthDp?.dp ?: maxFrameWidth,
+                                            config.heightDp?.dp ?: maxFrameHeight,
+                                        ),
+                                    ) {
+                                        interpreter.Render(preview.function, preview.arguments)
+                                    }
+                                }
                             }
                         }
                     }
@@ -161,6 +169,8 @@ internal fun PreviewList(
         }
     }
 }
+
+private const val MIN_ZOOM = 0.1f
 
 private val MIN_FRAME = 120.dp
 
