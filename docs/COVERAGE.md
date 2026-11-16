@@ -3,7 +3,7 @@
 Fast Compose can only call Compose APIs that have a binding. This page shows how much of the Compose API is bound and
 how that is measured.
 
-Numbers are for version 0.2.0, checked against the Jetpack Compose 1.12 API (Compose Multiplatform 1.12.2 is based on
+Numbers are for version 0.3.0, checked against the Jetpack Compose 1.12 API (Compose Multiplatform 1.12.2 is based on
 1.12.1) and the latest Material 3 API (1.5.0-alpha22 in use).
 
 ## What it can run
@@ -51,9 +51,9 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 
 | Category | Covered | |
 |---|---|---|
-| Composables | 112 of 181 | 61% |
-| Modifiers | 78 of 179 | 43% |
-| `remember*` functions | 18 of 51 | 35% |
+| Composables | 113 of 181 | 62% |
+| Modifiers | 85 of 179 | 47% |
+| `remember*` functions | 19 of 51 | 37% |
 | Members of `*Defaults` objects | 33 of 683 | 4% |
 
 ## By library
@@ -65,8 +65,8 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 | runtime | 4 of 4 (100%) | |
 | ui | 3 of 3 (100%) | |
 | foundation | 14 of 16 (87%) | `BasicSecureTextField`, `BasicTooltipBox` |
+| animation | 4 of 5 (80%) | `SharedTransitionScope` |
 | foundation-layout | 7 of 9 (77%) | `FlexBox`, `Grid` |
-| animation | 3 of 5 (60%) | `SharedTransitionLayout`, `SharedTransitionScope` |
 | material3 | 81 of 144 (56%) | See below |
 
 Most of the Material 3 composables without a binding are new Material 3 Expressive components, still in alpha:
@@ -77,14 +77,15 @@ components not covered yet are `SwipeToDismissBox`, `TimePicker`, `DateRangePick
 
 | Library | Covered |
 |---|---|
+| animation | 7 of 9 (77%) |
 | foundation-layout | 32 of 59 (54%) |
-| ui | 24 of 53 (45%) |
+| ui | 25 of 53 (47%) |
 | foundation | 17 of 41 (41%) |
 | material3 | 4 of 17 (23%) |
-| animation | 1 of 9 (11%) |
 
-The common layout, drawing, gesture, scrolling and graphics modifiers are covered. Not covered yet are mostly focus,
-drag and drop, shared elements, `anchoredDraggable` and `basicMarquee`.
+The common layout, drawing, gesture, scrolling and graphics modifiers are covered, and the shared-element modifiers
+(previews show one state, so they leave the modifier as it is). Not covered yet are mostly focus, drag and drop,
+`anchoredDraggable` and `basicMarquee`.
 
 ### `remember*` functions
 
@@ -94,7 +95,8 @@ drag and drop, shared elements, `anchoredDraggable` and `basicMarquee`.
 | animation-core | 1 of 2 (50%) |
 | foundation | 7 of 17 (41%) |
 | material3 | 7 of 21 (33%) |
-| animation, ui | 0 of 5 |
+| ui | 1 of 4 (25%) |
+| animation | 0 of 1 |
 
 ### Defaults
 
