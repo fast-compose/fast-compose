@@ -51,9 +51,9 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 
 | Category | Covered | |
 |---|---|---|
-| Composables | 113 of 181 | 62% |
-| Modifiers | 85 of 179 | 47% |
-| `remember*` functions | 19 of 51 | 37% |
+| Composables | 114 of 181 | 62% |
+| Modifiers | 86 of 179 | 48% |
+| `remember*` functions | 20 of 51 | 39% |
 | Members of `*Defaults` objects | 33 of 683 | 4% |
 
 ## By library
@@ -67,7 +67,7 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 | foundation | 14 of 16 (87%) | `BasicSecureTextField`, `BasicTooltipBox` |
 | animation | 4 of 5 (80%) | `SharedTransitionScope` |
 | foundation-layout | 7 of 9 (77%) | `FlexBox`, `Grid` |
-| material3 | 81 of 144 (56%) | See below |
+| material3 | 82 of 144 (56%) | See below |
 
 Most of the Material 3 composables without a binding are new Material 3 Expressive components, still in alpha:
 button groups, toggle buttons, loading indicators, carousels, floating toolbars and flexible app bars. Common
@@ -79,7 +79,7 @@ components not covered yet are `SwipeToDismissBox`, `TimePicker`, `DateRangePick
 |---|---|
 | animation | 7 of 9 (77%) |
 | foundation-layout | 32 of 59 (54%) |
-| ui | 25 of 53 (47%) |
+| ui | 26 of 53 (49%) |
 | foundation | 17 of 41 (41%) |
 | material3 | 4 of 17 (23%) |
 
@@ -93,7 +93,7 @@ The common layout, drawing, gesture, scrolling and graphics modifiers are covere
 |---|---|
 | runtime | 3 of 6 (50%) |
 | animation-core | 1 of 2 (50%) |
-| foundation | 7 of 17 (41%) |
+| foundation | 8 of 17 (47%) |
 | material3 | 7 of 21 (33%) |
 | ui | 1 of 4 (25%) |
 | animation | 0 of 1 |
