@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.SaverScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.toMutableStateList
@@ -29,8 +31,10 @@ public val LocalPreviewDarkTheme: ProvidableCompositionLocal<Boolean?> = staticC
 
 /** Saveable and specialized state, dark theme, platform locals and flows. */
 internal fun Registry.stateExtras() {
+    savers()
     // Previews are not saved and restored, so rememberSaveable behaves like remember.
-    composable("rememberSaveable(vararg inputs, init)") { a ->
+    // Previews don't save state, so a custom saver isn't used.
+    composable("rememberSaveable(vararg inputs, saver, key, init)") { a ->
         val init = a.calculation("init")
         remember(a.varargs("inputs")) { init() }
     }
@@ -46,6 +50,16 @@ internal fun Registry.stateExtras() {
     composable("isSystemInDarkTheme()") { LocalPreviewDarkTheme.current ?: isSystemInDarkTheme() }
     locals()
     flows()
+}
+
+/** `Saver(save, restore)`, as `rememberSaveable(saver = …)` and companion `Saver` properties build them. */
+private fun Registry.savers() {
+    type<Saver<*, *>>("Saver")
+    function("Saver(save, restore)") { a ->
+        val save = a.scopedFunction1<SaverScope>("save")
+        val restore = a.function1("restore")
+        Saver<Any?, Any>(save = { value -> save(this, value) }, restore = { saved -> restore(saved) })
+    }
 }
 
 private fun Registry.locals() {

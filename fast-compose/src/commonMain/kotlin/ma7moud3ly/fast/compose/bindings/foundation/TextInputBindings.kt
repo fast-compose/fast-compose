@@ -33,6 +33,8 @@ import ma7moud3ly.fast.compose.interpreter.Registry
 internal fun Registry.textInput() {
     keyboard()
     textStyles()
+    // Registered before the value-based field, so a `TextFieldState` passed by position picks this overload.
+    textFieldState()
     composable("BasicText(text, modifier, style, onTextLayout, overflow, softWrap, maxLines, minLines)") { a ->
         val style = a.typed("style", TextStyle.Default)
         val onTextLayout = a.action1OrNull("onTextLayout")

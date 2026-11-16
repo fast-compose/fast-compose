@@ -183,6 +183,58 @@ class KotlinSyntaxTest {
     }
 
     @Test
+    fun indexOfFirstAndLast() {
+        assertEquals(listOf(1, 3, -1), run("fun test() = listOf(listOf(1, 2, 3, 2).indexOfFirst { it == 2 }, listOf(1, 2, 3, 2).indexOfLast { it == 2 }, listOf(1).indexOfFirst { it > 5 })"))
+    }
+
+    @Test
+    fun aParameterWithAReceiverCalledOnAValue() {
+        val code = """
+            class Scope(val n: Int)
+
+            fun wrap(content: Scope.() -> Int) = Scope(3).content()
+
+            fun test() = wrap { n * 2 }
+        """
+        assertEquals(6, run(code))
+    }
+
+    @Test
+    fun aPropertyDoesNotHideAFunctionOfItsName() {
+        val code = """
+            class Holder {
+                companion object {
+                    val Maker: String = Maker("x")
+                }
+            }
+
+            fun Maker(text: String) = text + "!"
+
+            fun test() = Holder.Maker
+        """
+        assertEquals("x!", run(code))
+    }
+
+    @Test
+    fun anOverloadWhoseTypesFitWins() {
+        val code = """
+            class Post(val title: String)
+            class PostUiState(val loading: Boolean)
+
+            fun Screen(post: Post, big: Boolean) = "post " + post.title
+            fun Screen(uiState: PostUiState, big: Boolean) = "state " + uiState.loading
+
+            fun test() = listOf(Screen(PostUiState(true), false), Screen(Post("a"), true))
+        """
+        assertEquals(listOf("state true", "post a"), run(code))
+    }
+
+    @Test
+    fun floorDivAndMod() {
+        assertEquals(listOf(-4, 2, 1.5, -4L), run("fun test() = listOf((-7).floorDiv(2), (-7).mod(3), (7.5).mod(2.0), (-7L).floorDiv(2L))"))
+    }
+
+    @Test
     fun foldAndReduce() {
         val code = """
             fun List<Int>.total() = fold(initial = 0) { sum, n -> sum + n }

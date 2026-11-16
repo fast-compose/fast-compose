@@ -3,6 +3,7 @@ package ma7moud3ly.fast.compose.interpreter
 import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composition
 import androidx.compose.runtime.Recomposer
+import androidx.compose.ui.ImageComposeScene
 import kotlinx.coroutines.test.runTest
 import ma7moud3ly.fast.compose.bindings.foundation.FoundationBindings
 import ma7moud3ly.fast.compose.parser.KotlinParser
@@ -49,6 +50,30 @@ class ComposableContextTest {
         }
         assertEquals(emptyList(), problems)
         assertEquals(listOf("abc [0, 10]"), logs)
+    }
+
+    @Test
+    fun aStandInWrapperShowsContentPassedByName() {
+        val code = """
+            import io.lib.FancyTheme
+
+            @Composable
+            fun Screen() {
+                FancyTheme(mode = 1, content = { println("shown") })
+            }
+        """.trimIndent()
+        val logs = mutableListOf<String>()
+        val program = KotlinParser.parse(code).program
+        val registry = Registry().apply { install(FoundationBindings) }
+        val interpreter = Interpreter(program, registry, onLog = { logs += it })
+        // The content is shown in a Box, which needs the UI's composition locals: an off-screen scene provides them.
+        val scene = ImageComposeScene(100, 100) { interpreter.Render(program.functions.single()) }
+        try {
+            scene.render()
+        } finally {
+            scene.close()
+        }
+        assertEquals(listOf("shown"), logs)
     }
 
     @Test

@@ -269,6 +269,61 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun runBlockingRunsABlockThatDoesNotSuspend() {
+        assertEquals(2, runClean("fun test() = runBlocking { listOf(1, 2).size }"))
+    }
+
+    @Test
+    fun constraintsOffsetAndConstrain() {
+        val code = """
+            fun test(): List<Any?> {
+                val c = Constraints(maxWidth = 100, maxHeight = 50)
+                val inner = c.offset(-20, -10)
+                return listOf(
+                    inner.maxWidth,
+                    inner.maxHeight,
+                    c.constrainWidth(150),
+                    c.constrainHeight(20),
+                    c.constrain(Constraints(minWidth = 200)).minWidth,
+                    c.constrain(IntSize(300, 10)) == IntSize(100, 10),
+                )
+            }
+        """
+        assertEquals(listOf(80, 40, 100, 20, 100, true), runClean(code))
+    }
+
+    @Test
+    fun textFieldState() {
+        val code = """
+            fun test(): List<Any?> {
+                val state = TextFieldState("hi")
+                state.setTextAndPlaceCursorAtEnd("hello")
+                val text = state.text
+                state.clearText()
+                return listOf(
+                    text,
+                    state.text,
+                    TextFieldLineLimits.SingleLine == TextFieldLineLimits.SingleLine,
+                    TextFieldLineLimits.MultiLine(maxHeightInLines = 3) != null,
+                    InputTransformation { } != null,
+                )
+            }
+        """
+        assertEquals(listOf("hello", "", true, true, true), runClean(code))
+    }
+
+    @Test
+    fun mutableTransitionState() {
+        val code = """
+            fun test(): List<Any?> {
+                val state = MutableTransitionState(false).apply { targetState = true }
+                return listOf(state.currentState, state.targetState, state.isIdle)
+            }
+        """
+        assertEquals(listOf(false, true, false), runClean(code))
+    }
+
+    @Test
     fun sizeConstructors() {
         assertEquals(true, runClean("fun test() = DpSize(400.dp, 900.dp).width == 400.dp && IntSize(2, 3).height == 3"))
     }

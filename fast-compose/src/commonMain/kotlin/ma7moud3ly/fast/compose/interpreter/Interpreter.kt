@@ -411,7 +411,11 @@ public class Interpreter(
         val all = scope.functions[name]?.filter { (it.receiver != null) == extension } ?: return null
         // With both an expect and its actual loaded, the actual (with a body) runs.
         val candidates = all.filter { !it.isExpect }.ifEmpty { all }
-        return candidates.firstOrNull { accepts(paramsOf(it), args) } ?: candidates.firstOrNull()
+        // Overloads with the same number of parameters are told apart by the arguments' types, e.g.
+        // `PostScreen(post: Post, …)` and `PostScreen(uiState: PostUiState, …)`.
+        return candidates.firstOrNull { accepts(paramsOf(it), args) && fitsTypes(paramsOf(it), args) }
+            ?: candidates.firstOrNull { accepts(paramsOf(it), args) }
+            ?: candidates.firstOrNull()
     }
 
     private fun accepts(params: List<Param>, args: CallArgs): Boolean {
@@ -1064,7 +1068,11 @@ public class Interpreter(
                         memberClosure(receiver, it)
                     )
                 }
-                if (receiver.hasField(name)) return Target.Value(receiver.read(name))
+                // A property is called only when its value can be invoked; `val Saver = Saver(…)` calls the function.
+                if (receiver.hasField(name) && !receiver.isInitializing(name)) {
+                    val value = receiver.read(name)
+                    if (isInvocable(value, args)) return Target.Value(value)
+                }
                 // Inside a class, functions of its companion object can be called without a qualifier.
                 companion(receiver.decl)?.takeIf { it !== receiver }?.let { companion ->
                     findMethod(companion.decl, name, args)?.let { return Target.UserFunction(it, companion, null) }
@@ -1211,10 +1219,12 @@ public class Interpreter(
             null -> showIfError(fail(unresolved(name, env.file).message ?: name))
             is ErrorValue -> showIfError(target)
             is Target.Done -> standInResult(target.value, name, args).also { value ->
-                // A stand-in for a library container, e.g. `PullToRefreshBox(…) { content() }`, still shows its
-                // content, in a Box, so a wrapper from an unbound library doesn't hide the screen.
-                val content = args.trailing
-                if ((value is StandIn || value is StandInObject) && name.first().isUpperCase() && content is LambdaValue && content.lambda.params.isEmpty()) {
+                // A stand-in for a library container, e.g. `PullToRefreshBox(…) { content() }` or a theme given
+                // `content = content`, still shows its content, in a Box, so an unbound wrapper doesn't hide the screen.
+                val content = args.trailing ?: args.named["content"]
+                val takesNoArguments = content is LambdaValue && content.lambda.params.isEmpty() ||
+                    content is FunctionRef && content.decl.params.isEmpty() || content is ComposableSlot
+                if ((value is StandIn || value is StandInObject) && name.first().isUpperCase() && takesNoArguments) {
                     Box { showIfError(invokeComposable(content, this, emptyList())) }
                 }
             }
@@ -1485,7 +1495,18 @@ public class Interpreter(
     private fun memberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target =
         resolveMemberCall(receiver, name, args, env)
             ?: externalMemberTarget(receiver, name, args, env)
+            ?: localWithReceiver(receiver, name, env)
             ?: Target.Done(missingMember(receiver, name))
+
+    /**
+     * `receiver.content()` where `content` is a local value or parameter of a function type with a receiver, e.g.
+     * `content: @Composable Scope.() -> Unit` called as `Scope(…).content()`: Kotlin tries such locals after members.
+     */
+    private fun localWithReceiver(receiver: Any?, name: String, env: Env): Target? {
+        val value = env.find(name)
+        if (value !is LambdaValue || value.boundReceiver != null) return null
+        return Target.Value(LambdaValue(value.lambda, value.closure, value.label, value.receiverType, receiver))
+    }
 
     // ---------- Library code from the host's ExternalResolver ----------
 

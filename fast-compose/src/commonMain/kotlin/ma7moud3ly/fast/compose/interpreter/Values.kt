@@ -83,7 +83,8 @@ internal class Delegated(private val delegate: Any?) {
  * error names its real cause.
  */
 internal class LazyField(private val initializer: () -> Any?) {
-    private var isComputing = false
+    internal var isComputing = false
+        private set
     private var failure: InterpreterException? = null
 
     fun compute(name: String): Any? {
@@ -115,6 +116,9 @@ public abstract class UserValue internal constructor(public val decl: ClassDecl)
     internal val fields = mutableMapOf<String, Any?>()
 
     internal fun hasField(name: String) = name in fields
+
+    /** True while the lazy property [name] is being initialized, e.g. while its initializer calls a function of its name. */
+    internal fun isInitializing(name: String): Boolean = (fields[name] as? LazyField)?.isComputing == true
 
     internal fun read(name: String): Any? = when (val value = initialized(name)) {
         is Delegated -> value.get()

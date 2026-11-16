@@ -119,17 +119,25 @@ public class SourceLoader(
             }
             for (name in namesToFind(program, decl)) {
                 val own = program.declarations.filter { nameOf(it) == name }
-                if (own.isNotEmpty()) {
-                    reach(program, own)
-                    continue
-                }
+                if (own.isNotEmpty()) reach(program, own)
                 if (name in RESOURCE_CLASSES) continue
-                for (candidate in candidates(program, name)) {
+                // A file's own declaration hides its package and star imports, but not explicit imports of the same name:
+                // a `fun SearchCategory` of the file and an imported `data class SearchCategory` are both used.
+                val candidates = candidates(program, name).filter { own.isEmpty() || it.isImport }
+                for (candidate in candidates) {
                     val key = candidate.packageName to candidate.name
                     val files = lookups.getOrPut(key) {
                         if (candidate.isLibrary) listOfNotNull(provider.findLibrary(candidate.packageName, candidate.name))
                         else provider.findAll(candidate.packageName, candidate.name)
                     }.filter { it.path != program.path }
+                    // The previewed file declares it, e.g. a `LocalScope` that another file imports back from it.
+                    val inMain = program !== main && candidate.packageName == main.packageName &&
+                        main.declarations.any { nameOf(it) == candidate.name }
+                    if (inMain) {
+                        reach(main, main.declarations.filter { nameOf(it) == candidate.name })
+                        if (!candidate.isImport) break
+                        continue
+                    }
                     if (files.isEmpty()) {
                         if (candidate.isImport && !candidate.isLibrary) missing += MissingReference(name, candidate.packageName, program.path)
                         continue
@@ -143,7 +151,8 @@ public class SourceLoader(
                         }
                         reach(dependency, dependency.declarations.filter { nameOf(it) == candidate.name })
                     }
-                    break
+                    // Every explicit import of the name is followed; otherwise the first place that declares it wins.
+                    if (!candidate.isImport) break
                 }
             }
         }
@@ -163,13 +172,12 @@ public class SourceLoader(
 
     /** Where [name] may be declared, in Kotlin's lookup order; empty for names from library packages. */
     private suspend fun candidates(program: Program, name: String): List<Candidate> {
-        val import = program.imports.firstOrNull { !it.isStar && it.visibleName == name }
-        if (import != null) {
+        val imports = program.imports.filter { !it.isStar && it.visibleName == name }
+        if (imports.isNotEmpty()) {
             // Nested classes of the resource classes, `import app.R.string`, come from the resource bindings too.
-            if (import.declarationName in RESOURCE_CLASSES) return emptyList()
-            val packageName = import.declarationPackage
-            if (isBound(packageName)) return emptyList()
-            return listOf(Candidate(packageName, import.declarationName, true, isLibrary = isLibrary(packageName)))
+            return imports.filter { it.declarationName !in RESOURCE_CLASSES && !isBound(it.declarationPackage) }.map { import ->
+                Candidate(import.declarationPackage, import.declarationName, true, isLibrary = isLibrary(import.declarationPackage))
+            }
         }
         return buildList {
             add(Candidate(program.packageName, name, false))

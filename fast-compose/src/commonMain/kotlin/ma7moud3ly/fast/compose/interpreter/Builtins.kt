@@ -472,6 +472,15 @@ internal class Builtins(private val interpreter: Interpreter) {
         "toDouble" -> n.toDouble()
         "toChar" -> n.toInt().toChar()
         "roundToInt" -> if (n is Float) n.roundToInt() else n.toDouble().roundToInt()
+        "floorDiv" -> (a[0] as? Number)?.let { d -> if (n is Long || d is Long) n.toLong().floorDiv(d.toLong()) else n.toInt().floorDiv(d.toInt()) }
+            ?: throw InterpreterException("floorDiv needs a number")
+        "mod" -> (a[0] as? Number)?.let { d ->
+            when {
+                n is Double || n is Float || d is Double || d is Float -> n.toDouble().mod(d.toDouble())
+                n is Long || d is Long -> n.toLong().mod(d.toLong())
+                else -> n.toInt().mod(d.toInt())
+            }
+        } ?: throw InterpreterException("mod needs a number")
         "isNaN" -> n.toDouble().isNaN()
         "isInfinite" -> n.toDouble().isInfinite()
         "isFinite" -> n.toDouble().isFinite()
@@ -618,6 +627,8 @@ internal class Builtins(private val interpreter: Interpreter) {
             "dropLast" -> list.dropLast(int(a[0]))
             "distinct" -> list.distinct()
             "distinctBy" -> list.distinctBy { call(fn, it) }
+            "indexOfFirst" -> list.indexOfFirst { predicate(fn, it) }
+            "indexOfLast" -> list.indexOfLast { predicate(fn, it) }
             "partition" -> list.partition { predicate(fn, it) }
             "shuffled" -> list.shuffled()
             "random" -> list.random()

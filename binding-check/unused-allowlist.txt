@@ -42,3 +42,8 @@ skipToLookaheadPosition.enabled        # previews have no lookahead transition
 animateEnterExit.enter                 # previews show the visible state
 animateEnterExit.exit                  # previews show the visible state
 animateEnterExit.label                 # previews show the visible state
+MaterialExpressiveTheme.motionScheme   # previews don't animate
+runBlocking.context                    # the block runs where it is called
+rememberSaveable.saver                 # previews don't save state
+rememberSaveable.key                   # previews don't save state
+BasicTextField.onTextLayout            # the state-based field's layout callback isn't needed in previews
