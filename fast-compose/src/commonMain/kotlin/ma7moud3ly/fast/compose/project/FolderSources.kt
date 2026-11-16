@@ -18,6 +18,9 @@ public class FolderSources(
 
     override suspend fun find(packageName: String, name: String): SourceFile? = sources.find(packageName, name, roots, from)
 
+    override suspend fun findAll(packageName: String, name: String): List<SourceFile> =
+        sources.findAll(packageName, name, roots, from)
+
     override suspend fun isProjectPackage(packageName: String): Boolean =
         packageName.isEmpty() || sources.hasPackage(packageName, roots)
 

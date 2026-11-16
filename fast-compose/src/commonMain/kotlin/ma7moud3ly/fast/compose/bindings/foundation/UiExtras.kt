@@ -161,6 +161,15 @@ private fun Registry.densityConversions() {
     member<Dp>("toSp()") { dp, a -> with(a.density()) { dp.toSp() } }
     member<TextUnit>("toPx()") { sp, a -> with(a.density()) { sp.toPx() } }
     member<TextUnit>("toDp()") { sp, a -> with(a.density()) { sp.toDp() } }
+    // compose-ui-util's packing of two values into a Long, as value classes such as a scrollbar's state store them.
+    function("packFloats(val1, val2)") { a ->
+        (a.float("val1", 0f).toRawBits().toLong() shl 32) or (a.float("val2", 0f).toRawBits().toLong() and 0xFFFFFFFFL)
+    }
+    function("unpackFloat1(value)") { a -> Float.fromBits((a.long("value", 0L) ushr 32).toInt()) }
+    function("unpackFloat2(value)") { a -> Float.fromBits((a.long("value", 0L) and 0xFFFFFFFFL).toInt()) }
+    function("packInts(val1, val2)") { a -> (a.int("val1", 0).toLong() shl 32) or (a.int("val2", 0).toLong() and 0xFFFFFFFFL) }
+    function("unpackInt1(value)") { a -> (a.long("value", 0L) shr 32).toInt() }
+    function("unpackInt2(value)") { a -> (a.long("value", 0L) and 0xFFFFFFFFL).toInt() }
     member<TextUnit>("roundToPx()") { sp, a -> with(a.density()) { sp.roundToPx() } }
     member<Number>("em") { n, _ -> n.toFloat().em }
 }
@@ -232,6 +241,15 @@ private fun Registry.textExtras() {
         val block = a.scopedCalculation<AnnotatedString.Builder>("block")
         val link = a.typedOrNull<LinkAnnotation>("link")
         if (link == null) builder.block() else builder.withLink(link) { block() ?: Unit }
+    }
+    // Inside composition, the block is composable code, e.g. `withStyle(…) { append(stringResource(…)) }`.
+    composableMember<AnnotatedString.Builder>("withLink(link, block)") { builder, a ->
+        val block = a.composableScopedCalculation<AnnotatedString.Builder>("block")
+        val link = a.typedOrNull<LinkAnnotation>("link")
+        val index = link?.let { builder.pushLink(it) }
+        val result = builder.block() ?: Unit
+        index?.let { builder.pop(it) }
+        result
     }
     member<AnnotatedString.Builder>("pushLink(link)") { builder, a ->
         a.typedOrNull<LinkAnnotation>("link")?.let { builder.pushLink(it) } ?: Unit

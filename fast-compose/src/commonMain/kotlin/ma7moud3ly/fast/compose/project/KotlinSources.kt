@@ -78,6 +78,16 @@ public class KotlinSources(private val files: ProjectFiles) {
         return serve(match)
     }
 
+    /**
+     * Every file in [packageName] under [roots] that declares [name], e.g. a class and a function of that name in two
+     * files; an `expect` is replaced by its `actual` as in [find].
+     */
+    public fun findAll(packageName: String, name: String, roots: List<String>, from: String? = null): List<SourceFile> =
+        packageFiles(packageName, roots, from).filter { name in it.declarations }.map { file ->
+            val actual = if (file.declarations.getValue(name).isExpect) actualOf(file.path, packageName, name) else null
+            serve(actual ?: file)
+        }.distinctBy { it.path }
+
     /** The file in [packageName] under [roots] with the `expect` declaration of [name]; see [find]. */
     public fun findExpect(packageName: String, name: String, roots: List<String>, from: String? = null): SourceFile? {
         val match = packageFiles(packageName, roots, from).firstOrNull { it.declarations[name]?.isExpect == true } ?: return null

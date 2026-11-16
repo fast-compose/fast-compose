@@ -146,7 +146,7 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun parseFunction(start: Token, modifiers: Modifiers): FunDecl {
         expect(FUN, "'fun'")
-        skipTypeParameters()
+        val typeParameters = parseTypeParameterNames()
         val (receiver, name) = parseReceiverAndName()
         val params = parseParams()
         val returnType = if (match(COLON)) parseType() else null
@@ -163,7 +163,34 @@ public class Parser(private val tokens: List<Token>) {
             isPrivate = "private" in modifiers.words,
             isExpect = "expect" in modifiers.words,
             isActual = "actual" in modifiers.words,
+            typeParameters = typeParameters,
         )
+    }
+
+    /** Names of `<T, reified R : Any>` after `fun`; the bounds are skipped. */
+    private fun parseTypeParameterNames(): List<String> {
+        if (!at(LT)) return emptyList()
+        val end = scanTypeArguments(pos)
+        if (end < 0) throw error("Invalid type parameters")
+        val names = mutableListOf<String>()
+        var depth = 0
+        for (i in pos until end) {
+            val t = tokens[i]
+            when (t.type) {
+                LT -> depth++
+                GT -> depth--
+                IDENTIFIER -> if (depth == 1) {
+                    val previous = tokens[i - 1]
+                    val isModifier = t.text in typeParameterModifiers && tokens[i + 1].type == IDENTIFIER
+                    val startsParameter = previous.type == LT || previous.type == COMMA ||
+                        previous.type == IDENTIFIER && previous.text in typeParameterModifiers
+                    if (startsParameter && !isModifier) names += t.value
+                }
+                else -> Unit
+            }
+        }
+        pos = end
+        return names
     }
 
     private fun expressionBody(): Block {
@@ -887,8 +914,22 @@ public class Parser(private val tokens: List<Token>) {
             }
             THIS -> {
                 advance()
-                skipLabel()
-                ThisExpr(id(), spanFrom(t))
+                val label = skipLabel()
+                ThisExpr(id(), spanFrom(t), label)
+            }
+            // A collection literal, `[a, b]`, which Kotlin allows in annotation arguments: a list here.
+            LBRACKET -> {
+                val items = inParens {
+                    advance()
+                    val list = mutableListOf<Arg>()
+                    while (!at(RBRACKET)) {
+                        list += Arg(null, parseExpression())
+                        if (!match(COMMA)) break
+                    }
+                    expect(RBRACKET, "']'")
+                    list
+                }
+                Call(id(), spanFrom(t), Ident(id(), spanFrom(t), "listOf"), items, null)
             }
             STRING_START -> parseString()
             IDENTIFIER -> {
@@ -1035,11 +1076,16 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
-    /** Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. */
+    /**
+     * Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. Parameters may span lines and
+     * end with a trailing comma.
+     */
     private fun hasLambdaParams(): Boolean {
         var i = pos
         if (tokens[i].type == ARROW) return true
         while (true) {
+            while (tokens[i].type == NEWLINE) i++
+            if (tokens[i].type == ARROW && i > pos) return true
             if (tokens[i].type == LPAREN) {
                 i++
                 while (tokens[i].type != RPAREN) {
@@ -1053,6 +1099,7 @@ public class Parser(private val tokens: List<Token>) {
             }
             i++
             if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
+            while (tokens[i].type == NEWLINE) i++
             when (tokens[i].type) {
                 COMMA -> i++
                 ARROW -> return true
@@ -1084,7 +1131,9 @@ public class Parser(private val tokens: List<Token>) {
     /** Parses lambda parameters; a destructured parameter `(a, b)` is named `_` and its names go to [destructured]. */
     private fun parseLambdaParams(destructured: MutableMap<Int, List<String>>): List<String> {
         val params = mutableListOf<String>()
-        while (!at(ARROW)) {
+        while (true) {
+            skipNewlines()
+            if (at(ARROW)) break
             if (at(LPAREN)) {
                 destructured[params.size] = parseDestructuringNames()
                 params += "_"
@@ -1092,8 +1141,10 @@ public class Parser(private val tokens: List<Token>) {
                 params += expect(IDENTIFIER, "a parameter name").value
             }
             if (match(COLON)) parseType()
+            skipNewlines()
             if (!match(COMMA)) break
         }
+        skipNewlines()
         expect(ARROW, "'->'")
         return params
     }
@@ -1350,6 +1401,7 @@ public class Parser(private val tokens: List<Token>) {
 
     private companion object {
         val visibilityWords = setOf("private", "public", "internal", "protected")
+        val typeParameterModifiers = setOf("reified", "in", "out")
 
         /** Modifiers that may come before a property accessor. */
         val accessorModifiers = setOf("private", "public", "internal", "protected", "inline", "external")

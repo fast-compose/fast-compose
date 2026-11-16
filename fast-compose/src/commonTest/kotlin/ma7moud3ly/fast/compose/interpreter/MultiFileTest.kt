@@ -311,6 +311,28 @@ class MultiFileTest {
     }
 
     @Test
+    fun aNameDeclaredInTwoFilesLoadsBoth() = runTest {
+        val model = SourceFile("chat/Model.kt", "package app.chat\n\ndata class Message(val author: String, val text: String)")
+        val ui = SourceFile("chat/Ui.kt", "package app.chat\n\nfun Message(message: Message, isFirst: Boolean) = message.author + isFirst")
+        val sources = object : SourceProvider {
+            override suspend fun find(packageName: String, name: String) = ui
+            override suspend fun findAll(packageName: String, name: String) =
+                if (packageName == "app.chat" && name == "Message") listOf(ui, model) else emptyList()
+        }
+        val main = program(
+            """
+            package app.widget
+
+            import app.chat.Message
+
+            fun test() = Message(Message("ana", "hi"), true)
+            """,
+        )
+        val loaded = SourceLoader(sources).load(main)
+        assertEquals("anatrue", Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
+    }
+
+    @Test
     fun libraryDeclarationsFromSources() = runTest {
         val library = SourceFile(
             "nemo-sources.jar!/io/nemo/model/EditorTheme.kt",

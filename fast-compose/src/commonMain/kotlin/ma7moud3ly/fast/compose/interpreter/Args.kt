@@ -97,6 +97,9 @@ public class Args internal constructor(
     /** Optional composable slot, e.g. `label: (@Composable () -> Unit)?`; null when it was not passed. */
     public fun contentOrNull(name: String): (@Composable () -> Unit)? = if (lambda(name) == null) null else content(name)
 
+    /** [value], a composable lambda from a list such as `Layout(contents = listOf(a, b))`, as content. */
+    public fun contentOf(value: Any?): @Composable () -> Unit = { interpreter.invokeComposable(value, NoReceiver, emptyList()) }
+
     /** Composable slot with one parameter, e.g. Scaffold's `content: @Composable (PaddingValues) -> Unit`. */
     public fun content1(name: String = "content"): @Composable (Any?) -> Unit {
         val fn = lambda(name) ?: return {}

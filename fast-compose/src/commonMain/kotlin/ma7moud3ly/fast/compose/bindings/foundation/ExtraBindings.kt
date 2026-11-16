@@ -190,6 +190,11 @@ private fun Registry.annotatedStrings() {
         val builder = a.scopedAction<AnnotatedString.Builder>("builder")
         buildAnnotatedString { builder() }
     }
+    // Inside composition the builder is composable code, e.g. `append(stringResource(…))`: Kotlin's builder is inline.
+    composable("buildAnnotatedString(builder)") { a ->
+        val builder = a.composableScopedCalculation<AnnotatedString.Builder>("builder")
+        buildAnnotatedString { builder() }
+    }
     member<AnnotatedString.Builder>("append(text)") { builder, a ->
         when (val text = a["text"]) {
             is AnnotatedString -> builder.append(text)
@@ -205,6 +210,18 @@ private fun Registry.annotatedStrings() {
             is ParagraphStyle -> builder.withStyle(style) { block() ?: Unit }
             else -> throw InterpreterException("withStyle needs a SpanStyle or ParagraphStyle")
         }
+    }
+    // `withStyle`'s block is crossinline, so composable code can't run in it: the style is pushed and popped around it.
+    composableMember<AnnotatedString.Builder>("withStyle(style, block)") { builder, a ->
+        val block = a.composableScopedCalculation<AnnotatedString.Builder>("block")
+        val index = when (val style = a["style"]) {
+            is SpanStyle -> builder.pushStyle(style)
+            is ParagraphStyle -> builder.pushStyle(style)
+            else -> throw InterpreterException("withStyle needs a SpanStyle or ParagraphStyle")
+        }
+        val result = builder.block() ?: Unit
+        builder.pop(index)
+        result
     }
     member<AnnotatedString.Builder>("pushStyle(style)") { builder, a ->
         val style = a.typedOrNull<SpanStyle>("style")

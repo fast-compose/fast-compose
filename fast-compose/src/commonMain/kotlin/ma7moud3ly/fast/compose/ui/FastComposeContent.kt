@@ -16,8 +16,8 @@ import ma7moud3ly.fast.compose.parser.ast.Program
 /**
  * Renders one composable function of [code] as it is, without preview frames, labels or `@Preview` settings.
  * [entry] names a top-level `@Composable` function that takes no arguments; when null, the first `@Preview`
- * function is used. Images and strings from `R`/`Res` come from [resources]. Runtime errors are shown where they occur
- * and collected in [ComposeCode.logs].
+ * function is used. [arguments] are passed to it, e.g. a `@PreviewParameter` value from [previews]. Images and strings
+ * from `R`/`Res` come from [resources]. Runtime errors are shown where they occur and collected in [ComposeCode.logs].
  */
 @Composable
 public fun FastComposeContent(
@@ -26,6 +26,7 @@ public fun FastComposeContent(
     entry: String? = null,
     registry: Registry = rememberFullRegistry(),
     resources: ResourceProvider = LocalResourceProvider.current,
+    arguments: List<Any?> = emptyList(),
 ) {
     val program = code.program
     Box(modifier) {
@@ -36,7 +37,7 @@ public fun FastComposeContent(
             val function = remember(program, entry) { program.entry(entry) }
             when {
                 function != null -> key(function) {
-                    CompositionLocalProvider(LocalResourceProvider provides resources) { interpreter.Render(function) }
+                    CompositionLocalProvider(LocalResourceProvider provides resources) { interpreter.Render(function, arguments) }
                 }
                 entry != null -> ErrorBox("No top-level @Composable function named '$entry'")
                 else -> ErrorBox("Add @Preview to a @Composable function, or pass the entry name")

@@ -37,6 +37,18 @@ class ResourcesTest {
     }
 
     @Test
+    fun aliasedResourceClasses() {
+        val code = """
+            import app.feature.search.R as searchR
+
+            fun test() = searchR.string.title
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        val registry = Registry().apply { install(ResourceBindings) }
+        assertEquals(ResourceRef("string", "title"), Interpreter(program, registry).call("test"))
+    }
+
+    @Test
     fun importedResourceClasses() {
         val code = "import app.R.string\nimport app.resources.Res.drawable\n\nfun test() = listOf(string.title, drawable.logo)"
         val program = KotlinParser.parse(code).program

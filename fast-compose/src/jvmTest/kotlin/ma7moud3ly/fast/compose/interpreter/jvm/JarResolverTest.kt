@@ -172,6 +172,45 @@ class JarResolverTest {
     }
 
     @Test
+    fun importedJdkLocaleRunsAsLibraryCode() {
+        val code = """
+            import java.time.LocalDate
+            import java.time.format.DateTimeFormatter
+            import java.time.format.FormatStyle
+            import java.util.Locale
+
+            fun test() = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.US).format(LocalDate.of(2025, 1, 15))
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        // The foundation bindings have Compose's `Locale`; the explicit import of `java.util.Locale` wins.
+        val registry = Registry().apply { install(FoundationBindings) }
+        JarResolver(emptyList()).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val result = Interpreter(program, registry, onError = { problems += it }, externals = resolver).call("test")
+            assertEquals(emptyList(), problems)
+            assertEquals("Jan 15, 2025", result)
+        }
+    }
+
+    @Test
+    fun callableReferencesToLibraryMembers() {
+        val code = """
+            import ma7moud3ly.fast.compose.interpreter.jvm.fixtures.Money
+
+            fun Money.adder(): (Money) -> Money = ::plus
+
+            fun test() = listOf(listOf(Money(2), Money(3)).map(Money::amount), Money(1).adder()(Money(2)).amount)
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        JarResolver(listOf(classes)).use { resolver ->
+            val program = KotlinParser.parse(code).program
+            val result = Interpreter(program, Registry(), onError = { problems += it }, externals = resolver).call("test")
+            assertEquals(emptyList(), problems)
+            assertEquals(listOf(listOf(2L, 3L), 3L), result)
+        }
+    }
+
+    @Test
     fun failuresInLibraryCodeAreReported() {
         val code = """
             import java.time.LocalDate

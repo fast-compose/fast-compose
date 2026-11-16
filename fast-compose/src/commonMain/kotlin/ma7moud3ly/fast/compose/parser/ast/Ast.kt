@@ -96,6 +96,8 @@ public data class FunDecl(
     val isExpect: Boolean = false,
     /** `actual fun`: the platform body of an `expect fun`, which holds the default values of its parameters. */
     val isActual: Boolean = false,
+    /** Names of its type parameters, e.g. `T` in `fun <T : Any> T.show()`; their bounds are not kept. */
+    val typeParameters: List<String> = emptyList(),
 ) : Decl {
     public fun hasAnnotation(name: String): Boolean = annotations.any { it.name == name }
 }
@@ -205,7 +207,8 @@ public data class DoubleLit(override val id: Int, override val span: Span, val v
 public data class CharLit(override val id: Int, override val span: Span, val value: Char) : Expr
 public data class BoolLit(override val id: Int, override val span: Span, val value: Boolean) : Expr
 public data class NullLit(override val id: Int, override val span: Span) : Expr
-public data class ThisExpr(override val id: Int, override val span: Span) : Expr
+/** `this`, or `this@label` for the receiver of an enclosing labeled lambda, function or class. */
+public data class ThisExpr(override val id: Int, override val span: Span, val label: String? = null) : Expr
 
 /** Placeholder for input the lexer already reported as invalid. */
 public data class ErrorExpr(override val id: Int, override val span: Span) : Expr

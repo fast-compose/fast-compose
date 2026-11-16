@@ -112,6 +112,108 @@ class KotlinSyntaxTest {
     }
 
     @Test
+    fun anOverloadThatFitsWinsOverTheEnclosingExtension() {
+        val code = """
+            class Scroller {
+                fun go(index: Int) = index * 2
+            }
+
+            fun Scroller.make(n: Int): Int = make(n, ::go)
+
+            fun make(n: Int, scroll: (Int) -> Int): Int = scroll(n) + 1
+
+            fun test() = Scroller().make(3)
+        """
+        assertEquals(7, run(code))
+    }
+
+    @Test
+    fun numberConstantsNamedComparisonsAndDistinct() {
+        val code = """
+            fun test() = listOf(
+                max(a = 3, b = 7),
+                min(a = 2.5f, b = 1.5f),
+                Float.NaN.isNaN(),
+                Double.POSITIVE_INFINITY.isInfinite(),
+                Int.MAX_VALUE,
+                listOf(1, 2, 3, 4).distinctBy { it % 2 },
+                listOf(1, 2, 3).partition { it > 1 },
+            )
+        """
+        assertEquals(listOf(7, 1.5f, true, true, Int.MAX_VALUE, listOf(1, 2), Pair(listOf(2, 3), listOf(1))), run(code))
+    }
+
+    @Test
+    fun extensionsOnATypeParameter() {
+        val code = """
+            class Grid {
+                fun total() = describe()
+            }
+
+            fun <S : Any> S.describe(): String = "item"
+
+            fun test() = Grid().total() + " " + Grid().describe()
+        """
+        assertEquals("item item", run(code))
+    }
+
+    @Test
+    fun labeledThis() {
+        val code = """
+            class Screen {
+                val name = "screen"
+
+                fun title() = with(3) { this@Screen.name }
+            }
+
+            fun test() = listOf(with("outer") outer@{ with(5) { this@outer } }, Screen().title())
+        """
+        assertEquals(listOf("outer", "screen"), run(code))
+    }
+
+    @Test
+    fun arrayLiteralsInAnnotations() {
+        val code = """
+            annotation class Tags(val names: Array<String>)
+
+            @Tags(names = ["a", "b"])
+            fun test() = 1
+        """
+        assertEquals(1, run(code))
+    }
+
+    @Test
+    fun foldAndReduce() {
+        val code = """
+            fun List<Int>.total() = fold(initial = 0) { sum, n -> sum + n }
+
+            fun test() = listOf(
+                listOf(1, 2, 3).fold(10) { sum, n -> sum + n },
+                listOf(1, 2, 3).total(),
+                listOf(2, 3, 4).reduce { product, n -> product * n },
+                listOf(1, 2, 3).runningFold(0) { sum, n -> sum + n },
+            )
+        """
+        assertEquals(listOf(16, 6, 24, listOf(0, 1, 3, 6)), run(code))
+    }
+
+    @Test
+    fun lambdaParametersOnSeveralLines() {
+        val code = """
+            fun test(): Int {
+                val sum = {
+                        (a, b): Pair<Int, Int>,
+                        c: Int,
+                    ->
+                    a + b + c
+                }
+                return sum(Pair(1, 2), 3)
+            }
+        """
+        assertEquals(6, run(code))
+    }
+
+    @Test
     fun enumEntriesInsideTheirOwnMembers() {
         val code = """
             enum class Layout {

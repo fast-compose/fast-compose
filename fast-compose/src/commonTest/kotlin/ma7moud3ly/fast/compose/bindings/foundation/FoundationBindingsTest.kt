@@ -269,6 +269,22 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun sizeConstructors() {
+        assertEquals(true, runClean("fun test() = DpSize(400.dp, 900.dp).width == 400.dp && IntSize(2, 3).height == 3"))
+    }
+
+    @Test
+    fun packedValuesAndDpComparisons() {
+        val code = """
+            fun test(): List<Any?> {
+                val packed = packFloats(1.5f, 2f)
+                return listOf(unpackFloat1(packed), unpackFloat2(packed), max(2.dp, 5.dp) == 5.dp, min(2.dp, 5.dp) == 2.dp)
+            }
+        """
+        assertEquals(listOf(1.5f, 2f, true, true), runClean(code))
+    }
+
+    @Test
     fun clickAndSizeModifiersWithOptions() {
         val code = """
             fun test() = listOf(

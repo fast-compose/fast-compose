@@ -19,6 +19,12 @@ public fun interface SourceProvider {
     public suspend fun find(packageName: String, name: String): SourceFile?
 
     /**
+     * Every file in [packageName] that declares the top-level [name], e.g. a `data class Message` and a
+     * `fun Message(…)` in two files of a package; by default the one [find] gives.
+     */
+    public suspend fun findAll(packageName: String, name: String): List<SourceFile> = listOfNotNull(find(packageName, name))
+
+    /**
      * True if [packageName] belongs to the project, false for library packages. Names imported from library packages
      * are never looked up with [find] and never reported as missing: they come from bindings, or from [findLibrary].
      * By default every package counts as the project's, except [SourceLoader.DEFAULT_LIBRARY_PACKAGES].
@@ -87,7 +93,7 @@ public class SourceLoader(
         val found = LinkedHashMap<String, Program>()
         val missing = LinkedHashSet<MissingReference>()
         val diagnostics = mutableMapOf<String, List<Diagnostic>>()
-        val lookups = mutableMapOf<Pair<String, String>, SourceFile?>()
+        val lookups = mutableMapOf<Pair<String, String>, List<SourceFile>>()
         val reached = mutableSetOf<Pair<String?, Int>>()
         val queue = ArrayDeque<Pair<Program, Decl>>()
 
@@ -120,24 +126,23 @@ public class SourceLoader(
                 if (name in RESOURCE_CLASSES) continue
                 for (candidate in candidates(program, name)) {
                     val key = candidate.packageName to candidate.name
-                    val file = if (key in lookups) {
-                        lookups[key]
-                    } else if (candidate.isLibrary) {
-                        provider.findLibrary(candidate.packageName, candidate.name).also { lookups[key] = it }
-                    } else {
-                        provider.find(candidate.packageName, candidate.name).also { lookups[key] = it }
-                    }
-                    if (file == null || file.path == program.path) {
+                    val files = lookups.getOrPut(key) {
+                        if (candidate.isLibrary) listOfNotNull(provider.findLibrary(candidate.packageName, candidate.name))
+                        else provider.findAll(candidate.packageName, candidate.name)
+                    }.filter { it.path != program.path }
+                    if (files.isEmpty()) {
                         if (candidate.isImport && !candidate.isLibrary) missing += MissingReference(name, candidate.packageName, program.path)
                         continue
                     }
-                    val dependency = if (file.path == main.path) main else found[file.path] ?: run {
-                        val (fileProgram, errors) = parse(file)
-                        found[file.path] = fileProgram
-                        if (errors.isNotEmpty()) diagnostics[file.path] = errors
-                        fileProgram
+                    for (file in files) {
+                        val dependency = if (file.path == main.path) main else found[file.path] ?: run {
+                            val (fileProgram, errors) = parse(file)
+                            found[file.path] = fileProgram
+                            if (errors.isNotEmpty()) diagnostics[file.path] = errors
+                            fileProgram
+                        }
+                        reach(dependency, dependency.declarations.filter { nameOf(it) == candidate.name })
                     }
-                    reach(dependency, dependency.declarations.filter { nameOf(it) == candidate.name })
                     break
                 }
             }

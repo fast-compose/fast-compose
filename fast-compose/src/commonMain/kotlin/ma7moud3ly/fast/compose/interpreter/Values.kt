@@ -1,6 +1,10 @@
 package ma7moud3ly.fast.compose.interpreter
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableDoubleState
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableLongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import ma7moud3ly.fast.compose.parser.ast.ClassDecl
@@ -62,7 +66,15 @@ internal class Delegated(private val delegate: Any?) {
     fun set(value: Any?) {
         if (delegate is StandIn) return
         if (delegate !is MutableState<*>) throw InterpreterException("Property delegate is read-only")
-        (delegate as MutableState<Any?>).value = value
+        // Primitive states take only numbers of their type; another value, such as a stand-in, leaves them unchanged.
+        val number = value as? Number
+        when (delegate) {
+            is MutableLongState -> number?.let { delegate.longValue = it.toLong() }
+            is MutableIntState -> number?.let { delegate.intValue = it.toInt() }
+            is MutableFloatState -> number?.let { delegate.floatValue = it.toFloat() }
+            is MutableDoubleState -> number?.let { delegate.doubleValue = it.toDouble() }
+            else -> (delegate as MutableState<Any?>).value = value
+        }
     }
 }
 
@@ -180,8 +192,8 @@ public class FunctionRef internal constructor(internal val decl: FunDecl, intern
  * `Type::name`, a reference to a member of a type such as `Char::lowercase` or `Item::title`: a function whose first
  * argument is the receiver. [env] is where the reference was written, for resolving extensions.
  */
-internal class MemberRef(val type: String, val name: String, val env: Env) {
-    override fun toString(): String = "$type::$name"
+internal class MemberRef(val type: String, val name: String, val env: Env, val bound: Any? = NoReceiver) {
+    override fun toString(): String = if (bound === NoReceiver) "$type::$name" else "::$name"
 }
 
 /**

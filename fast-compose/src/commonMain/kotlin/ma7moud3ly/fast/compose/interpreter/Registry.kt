@@ -200,6 +200,10 @@ public class Registry(private val parent: Registry? = null) {
     public fun hasMember(receiver: Any?, name: String): Boolean =
         collect(name) { it.members }.any { it.accepts(receiver) } || findFallback(receiver) != null
 
+    /** True when [receiver] has a suspend member binding [name], e.g. `LazyListState.scrollToItem`. */
+    public fun hasSuspendMember(receiver: Any?, name: String): Boolean =
+        collect(name) { it.suspendMembers }.any { it.accepts(receiver) }
+
     /** Top-level names of this registry and its parents, used for "did you mean" suggestions. */
     public fun globalNames(): Set<String> = ownGlobalNames() + parent?.globalNames().orEmpty()
 

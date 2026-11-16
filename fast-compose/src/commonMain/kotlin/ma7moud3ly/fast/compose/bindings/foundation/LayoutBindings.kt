@@ -62,6 +62,16 @@ private fun Registry.customLayouts() {
     composable("Layout(content, modifier, measurePolicy)") { a ->
         Layout(content = a.content(), modifier = a.modifier(), measurePolicy = a.measurePolicy())
     }
+    // `MeasurePolicy { measurables, constraints -> … }`: the lambda itself, which `Layout` measures with.
+    function("MeasurePolicy(measure)") { a -> a.lambda("measure") }
+    // Several contents, measured as one list of measurables each.
+    composable("Layout(contents: List, modifier, measurePolicy)") { a ->
+        val contents = a.typed<List<*>>("contents", emptyList<Any?>()).map { a.contentOf(it) }
+        val block = a.scopedFunction2<MeasureScope>("measurePolicy")
+        Layout(contents = contents, modifier = a.modifier()) { measurables, constraints ->
+            block(measurables, constraints) as? MeasureResult ?: layout(0, 0) {}
+        }
+    }
     member<Measurable>("measure(constraints)") { measurable, a -> measurable.measure(a.typed("constraints", Constraints())) }
     properties<Placeable>("width" to { it.width }, "height" to { it.height })
     member<MeasureScope>("layout(width, height, alignmentLines, placementBlock)") { scope, a ->
