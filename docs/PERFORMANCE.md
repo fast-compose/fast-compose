@@ -9,13 +9,13 @@ run on a GitHub-hosted cloud runner by the [Benchmark workflow](../.github/workf
 
 | Operation | Cost |
 |---|---|
-| Parsing a 59-line preview file | 0.65 ms (11 µs per line) |
-| Call to a function binding, e.g. `Text(…)` | 0.27 µs |
-| Call to a member binding, e.g. `Modifier.padding(…)` | 0.22 µs |
-| Call to an interpreted function, including its body | 0.52 µs |
+| Parsing a 59-line preview file | 0.33 ms (5.5 µs per line) |
+| Call to a function binding, e.g. `Text(…)` | 0.32 µs |
+| Call to a member binding, e.g. `Modifier.padding(…)` | 0.27 µs |
+| Call to an interpreted function, including its body | 0.70 µs |
 | Loop iteration with local variables and a condition | 0.35 µs |
 
-At these costs, a 16.7 ms frame (60 Hz) fits about 60,000 binding calls. Typical previews make hundreds, so the
+Numbers are for version 0.3.0. At these costs, a 16.7 ms frame (60 Hz) fits about 50,000 binding calls. Typical previews make hundreds, so the
 interpreter takes a small share of a frame; Compose's own measuring, layout and drawing take longer. Parsing a file
 takes less than a millisecond, far below the 150 ms pause after which edits are parsed.
 
@@ -39,14 +39,14 @@ Both loops run 100,000 iterations. After warming up both, they are timed in alte
 median of the 15 paired differences, divided by 100,000, is the cost of one call. Timing in pairs cancels drift in
 JIT compilation and machine speed, which affects both loops of a pair alike.
 
-**Repetition.** The workflow runs the whole benchmark 5 times, each in a new JVM. Results are the median of the 5
+**Repetition.** The workflow runs the whole benchmark 6 times, each in a new JVM. Results are the median of the 6
 runs, with the lowest and highest value.
 
 **Environment.**
 
 | | |
 |---|---|
-| Machine | GitHub-hosted runner `ubuntu-latest`: 2 vCPUs of an AMD EPYC 7763, 7.7 GB of memory |
+| Machine | GitHub-hosted runner `ubuntu-latest`: 4 vCPUs of an AMD EPYC 7763, 15 GB of memory |
 | OS | Linux 7.0 (Azure), x86-64 |
 | JVM | OpenJDK 64-Bit Server VM 21.0.11, heap limited to 512 MB |
 
@@ -66,32 +66,36 @@ summary.
 
 ## Results
 
-Median of 5 runs, with the range across runs:
+Median of 6 runs, with the range across runs:
 
 | Workload | Median time | Per operation | Range per operation |
 |---|---|---|---|
-| Parsing | 0.65 ms per parse | 10.96 µs per line | 6.19 – 11.75 |
-| Recursion | 11.35 ms | 0.519 µs per call | 0.512 – 0.549 |
-| Loops and locals | 17.34 ms | 0.347 µs per iteration | 0.342 – 0.363 |
-| Classes and collections | 13.38 ms | 2.676 µs per item | 2.566 – 3.982 |
-| Function binding loop | 47.20 ms | 0.472 µs per iteration | 0.446 – 0.514 |
-| Function binding baseline | 20.33 ms | 0.203 µs per iteration | 0.195 – 0.221 |
-| Member binding loop | 36.50 ms | 0.365 µs per iteration | 0.329 – 0.379 |
-| Member binding baseline | 14.19 ms | 0.142 µs per iteration | 0.132 – 0.155 |
+| Parsing | 0.33 ms per parse | 5.46 µs per line | 5.02 – 6.28 |
+| Recursion | 15.34 ms | 0.701 µs per call | 0.670 – 0.722 |
+| Loops and locals | 17.51 ms | 0.350 µs per iteration | 0.329 – 0.379 |
+| Classes and collections | 8.97 ms | 1.794 µs per item | 1.051 – 2.037 |
+| Function binding loop | 53.00 ms | 0.530 µs per iteration | 0.514 – 0.549 |
+| Function binding baseline | 21.20 ms | 0.212 µs per iteration | 0.199 – 0.222 |
+| Member binding loop | 42.91 ms | 0.430 µs per iteration | 0.408 – 0.436 |
+| Member binding baseline | 15.36 ms | 0.154 µs per iteration | 0.135 – 0.166 |
 
 Binding calls, from the paired differences:
 
 | | Median | Range | Per run |
 |---|---|---|---|
-| Function binding call | 0.266 µs | 0.240 – 0.295 | 0.254, 0.292, 0.240, 0.266, 0.295 |
-| Member binding call | 0.222 µs | 0.192 – 0.224 | 0.192, 0.224, 0.202, 0.222, 0.224 |
+| Function binding call | 0.320 µs | 0.305 – 0.331 | 0.322, 0.309, 0.331, 0.317, 0.329, 0.305 |
+| Member binding call | 0.272 µs | 0.266 – 0.293 | 0.270, 0.275, 0.266, 0.293, 0.267, 0.273 |
 
 A binding call costs about half of an interpreted function call: it looks up the binding, matches the arguments to
 its signature and calls compiled Compose code, while an interpreted call also creates a scope and evaluates a body.
 
-Most workloads vary by less than 10% between runs. Parsing and the collections workload vary more: parsing took
-either about 6 µs or about 11 µs per line, in two groups, which points to differences in JIT compilation or CPU
-frequency between runs rather than to the parser.
+Most workloads vary by less than 10% between runs. The collections workload varies more: it took either about 1.1 µs
+or about 1.7 – 2.0 µs per item, in two groups, which points to differences in JIT compilation or CPU frequency between
+runs rather than to the interpreter.
+
+Compared with 0.2.0, on the same CPU model, loops cost the same, while calls cost more: interpreted function calls
+about 35%, binding calls about 20%. Calls now also pick overloads by argument types and check whether a property can
+be called. Parsing and collections are faster.
 
 ## Recomposition
 
@@ -138,7 +142,7 @@ stops code that runs for more than 2 seconds without a pause:
 ## Reproducing
 
 Start the [Benchmark workflow](../.github/workflows/benchmark.yml) from the repository's Actions tab, choosing the
-number of runs; 5 were used here. The runner's hardware and every run's results appear in the run summary and are
+number of runs; 6 were used here. The runner's hardware and every run's results appear in the run summary and are
 saved as the `benchmark-results` artifact.
 
 The same benchmark runs locally with:
@@ -150,8 +154,8 @@ The same benchmark runs locally with:
 Each run prints one line per result:
 
 ```
-benchmark environment: OpenJDK 64-Bit Server VM 21.0.11, Linux amd64, 2 processors, max heap 512 MB; 10 warm-up runs, median of 7 runs, 15 pairs for binding calls
-benchmark parsing: median 0.65 ms per parse of 59 lines, 10.964 us per line
-benchmark recursion (fib 20): median 11.35 ms, 0.519 us per call (21891 calls)
-benchmark function binding call: 0.266 us per call (median of 15 paired differences)
+benchmark environment: OpenJDK 64-Bit Server VM 21.0.11, Linux amd64, 4 processors, max heap 512 MB; 10 warm-up runs, median of 7 runs, 15 pairs for binding calls
+benchmark parsing: median 0.30 ms per parse of 59 lines, 5.015 us per line
+benchmark recursion (fib 20): median 14.67 ms, 0.670 us per call (21891 calls)
+benchmark function binding call: 0.322 us per call (median of 15 paired differences)
 ```
