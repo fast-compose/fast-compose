@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.round
 
 /** `Canvas`, `Modifier.drawBehind`, DrawScope drawing, geometry and infinite animations. */
 internal fun Registry.drawing() {
@@ -231,6 +232,7 @@ private fun Registry.geometry() {
     member<Offset>("minus(other)") { o, a -> o - a.typed("other", Offset.Zero) }
     member<Offset>("times(operand)") { o, a -> o * a.float("operand", 1f) }
     member<Offset>("div(operand)") { o, a -> o / a.float("operand", 1f) }
+    member<Offset>("round()") { o, _ -> o.round() }
     member<Offset>("unaryMinus") { o, _ -> -o }
     member<Offset>("copy(x, y)") { o, a -> o.copy(x = a.float("x", o.x), y = a.float("y", o.y)) }
 

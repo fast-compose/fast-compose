@@ -539,7 +539,10 @@ private fun Registry.values() {
     }
 
     value("TextOverflow", TextOverflow.Companion)
-    constants<TextOverflow.Companion>("Clip" to TextOverflow.Clip, "Ellipsis" to TextOverflow.Ellipsis, "Visible" to TextOverflow.Visible)
+    constants<TextOverflow.Companion>(
+        "Clip" to TextOverflow.Clip, "Ellipsis" to TextOverflow.Ellipsis, "Visible" to TextOverflow.Visible,
+        "StartEllipsis" to TextOverflow.StartEllipsis, "MiddleEllipsis" to TextOverflow.MiddleEllipsis,
+    )
     value("FontStyle", FontStyle.Companion)
     constants<FontStyle.Companion>("Normal" to FontStyle.Normal, "Italic" to FontStyle.Italic)
     value("TextDecoration", TextDecoration.Companion)

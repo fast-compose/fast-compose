@@ -1,6 +1,8 @@
 package ma7moud3ly.fast.compose.bindings.coil
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -23,6 +25,9 @@ import ma7moud3ly.fast.compose.interpreter.Registry
  * Network images with Coil: `AsyncImage` and `rememberAsyncImagePainter`. The model is passed to Coil unchanged and
  * loaded by Coil's singleton `ImageLoader`, which hosts configure with `setSingletonImageLoaderFactory`. Images that
  * fail to load draw a placeholder unless `error` is passed, and the failure is logged as a warning.
+ *
+ * Coil loads on its own dispatchers even though previews set `LocalInspectionMode`: in inspection mode Coil loads
+ * synchronously, on the main thread, which Android rejects for network requests (`NetworkOnMainThreadException`).
  */
 public object CoilBindings : BindingPack {
     override fun install(registry: Registry): Unit = registry.coil()
@@ -34,7 +39,8 @@ private fun Registry.coil() {
             "alignment, contentScale, alpha, colorFilter, filterQuality, clipToBounds)",
     ) { a ->
         val error = a.typedOrNull<Painter>("error") ?: remember { FailedImagePainter() }
-        AsyncImage(
+        CompositionLocalProvider(LocalInspectionMode provides false) {
+            AsyncImage(
             model = a["model"],
             contentDescription = a.stringOrNull("contentDescription"),
             modifier = a.modifier(),
@@ -50,11 +56,14 @@ private fun Registry.coil() {
             colorFilter = a.typedOrNull<ColorFilter>("colorFilter"),
             filterQuality = a.typed("filterQuality", DrawScope.DefaultFilterQuality),
             clipToBounds = a.boolean("clipToBounds", true),
-        )
+            )
+        }
     }
     composable("rememberAsyncImagePainter(model, placeholder, error, fallback, onLoading, onSuccess, onError, contentScale, filterQuality)") { a ->
         val error = a.typedOrNull<Painter>("error") ?: remember { FailedImagePainter() }
-        rememberAsyncImagePainter(
+        var painter: Painter? = null
+        CompositionLocalProvider(LocalInspectionMode provides false) {
+            painter = rememberAsyncImagePainter(
             model = a["model"],
             placeholder = a.typedOrNull<Painter>("placeholder"),
             error = error,
@@ -64,7 +73,9 @@ private fun Registry.coil() {
             onError = a.onError(),
             contentScale = a.typed<ContentScale>("contentScale", ContentScale.Fit),
             filterQuality = a.typed<FilterQuality>("filterQuality", DrawScope.DefaultFilterQuality),
-        )
+            )
+        }
+        painter
     }
 }
 
