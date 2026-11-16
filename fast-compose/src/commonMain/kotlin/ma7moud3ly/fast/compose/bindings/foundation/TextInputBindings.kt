@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -138,9 +140,13 @@ private fun Registry.keyboard() {
     }
 }
 
+/** Android's `PlatformTextStyle(includeFontPadding = …)`, which previews ignore. */
+internal object PreviewPlatformTextStyle
+
 private fun Registry.textStyles() {
     function(
-        "TextStyle(color, fontSize, fontWeight, fontStyle, *, fontFamily, letterSpacing, background, textDecoration, shadow, textAlign, lineHeight)",
+        "TextStyle(color, fontSize, fontWeight, fontStyle, *, fontFamily, letterSpacing, background, textDecoration, shadow, " +
+            "textAlign, lineHeight, platformStyle, lineHeightStyle, lineBreak)",
     ) { a ->
         TextStyle(
             color = a.color("color"),
@@ -154,9 +160,13 @@ private fun Registry.textStyles() {
             shadow = a.typedOrNull<Shadow>("shadow"),
             textAlign = a.typed("textAlign", TextAlign.Unspecified),
             lineHeight = a.sp("lineHeight"),
+            lineHeightStyle = a.typedOrNull<LineHeightStyle>("lineHeightStyle"),
+            lineBreak = a.typed("lineBreak", LineBreak.Unspecified),
         )
     }
     value("TextStyle", TextStyle.Companion)
+    type<PreviewPlatformTextStyle>("PlatformTextStyle")
+    function("PlatformTextStyle(includeFontPadding)") { _ -> PreviewPlatformTextStyle }
     constants<TextStyle.Companion>("Default" to TextStyle.Default)
     type<Shadow>("Shadow")
     function("Shadow(color, offset, blurRadius)") { a ->

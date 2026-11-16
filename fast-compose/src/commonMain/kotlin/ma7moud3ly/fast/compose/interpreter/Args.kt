@@ -187,6 +187,12 @@ public class Args internal constructor(
         return { interpreter.invokeComposable(fn, NoReceiver, listOf(it)) }
     }
 
+    /** Composable lambda with a receiver that returns a value, e.g. `Modifier.composed`'s `@Composable Modifier.() -> Modifier`. */
+    public fun <S> composableScopedCalculation(name: String): @Composable S.() -> Any? {
+        val fn = lambda(name) ?: return { null }
+        return { interpreter.invokeComposable(fn, this, emptyList()) }
+    }
+
     /** Lambda with a receiver scope that returns a value, e.g. DisposableEffect's `DisposableEffectScope.() -> DisposableEffectResult`. */
     public fun <S> scopedCalculation(name: String): S.() -> Any? {
         val fn = lambda(name) ?: return { null }

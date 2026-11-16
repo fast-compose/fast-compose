@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 
 package ma7moud3ly.fast.compose.bindings.foundation
 
@@ -10,7 +10,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
@@ -108,6 +112,37 @@ internal fun Registry.extras() {
     gestures()
     constraints()
     transitions()
+    sharedTransitions()
+}
+
+/**
+ * Shared element transitions. `SharedTransitionLayout` gives its content a real `SharedTransitionScope`, so screens that
+ * require one find it; the shared-element modifiers leave the modifier as it is, since a preview shows one state and
+ * doesn't animate between screens.
+ */
+private fun Registry.sharedTransitions() {
+    type<SharedTransitionScope>("SharedTransitionScope")
+    type<SharedTransitionScope.SharedContentState>("SharedContentState")
+    composable("SharedTransitionLayout(modifier, content)") { a ->
+        val content = a.scopedContent<SharedTransitionScope>()
+        SharedTransitionLayout(a.modifier()) { content() }
+    }
+    composableMember<SharedTransitionScope>("rememberSharedContentState(key)") { scope, a ->
+        scope.rememberSharedContentState(a["key"] ?: Unit)
+    }
+    function("BoundsTransform(transform)") { _ -> BoundsTransform { _, _ -> spring() } }
+    member<Modifier>(
+        "sharedElement(sharedContentState, animatedVisibilityScope, boundsTransform, placeholderSize, " +
+            "renderInOverlayDuringTransition, zIndexInOverlay, clipInOverlayDuringTransition)",
+    ) { m, _ -> m }
+    member<Modifier>(
+        "sharedBounds(sharedContentState, animatedVisibilityScope, enter, exit, boundsTransform, resizeMode, " +
+            "placeholderSize, renderInOverlayDuringTransition, zIndexInOverlay, clipInOverlayDuringTransition)",
+    ) { m, _ -> m }
+    member<Modifier>("renderInSharedTransitionScopeOverlay(zIndexInOverlay, renderInOverlay)") { m, _ -> m }
+    member<Modifier>("skipToLookaheadSize(enabled)") { m, _ -> m }
+    member<Modifier>("skipToLookaheadPosition(enabled)") { m, _ -> m }
+    member<Modifier>("animateEnterExit(enter, exit, label)") { m, _ -> m }
 }
 
 @Suppress("UNCHECKED_CAST")

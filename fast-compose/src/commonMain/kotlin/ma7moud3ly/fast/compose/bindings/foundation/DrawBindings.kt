@@ -39,6 +39,12 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Density
@@ -50,6 +56,43 @@ internal fun Registry.drawing() {
     drawScope()
     geometry()
     infiniteAnimations()
+    textMeasurement()
+}
+
+/** `rememberTextMeasurer()`, `TextMeasurer.measure(…)` and `DrawScope.drawText(…)` for text drawn on a canvas. */
+private fun Registry.textMeasurement() {
+    type<TextMeasurer>("TextMeasurer")
+    composable("rememberTextMeasurer(cacheSize)") { a -> rememberTextMeasurer(a.int("cacheSize", 8)) }
+    member<TextMeasurer>("measure(text, style, overflow, softWrap, maxLines)") { measurer, a ->
+        measurer.measure(
+            text = a.annotatedText("text"),
+            style = a.typed("style", TextStyle.Default),
+            overflow = a.typed("overflow", TextOverflow.Clip),
+            softWrap = a.boolean("softWrap", true),
+            maxLines = a.int("maxLines", Int.MAX_VALUE),
+        )
+    }
+    member<DrawScope>("drawText(textMeasurer, text, topLeft, style, overflow, softWrap, maxLines, size, blendMode)") { s, a ->
+        val measurer = a.typedOrNull<TextMeasurer>("textMeasurer") ?: throw InterpreterException("drawText needs a TextMeasurer")
+        s.drawText(
+            textMeasurer = measurer,
+            text = a.annotatedText("text"),
+            topLeft = a.typed("topLeft", Offset.Zero),
+            style = a.typed("style", TextStyle.Default),
+            overflow = a.typed("overflow", TextOverflow.Clip),
+            softWrap = a.boolean("softWrap", true),
+            maxLines = a.int("maxLines", Int.MAX_VALUE),
+            size = a.typed("size", Size.Unspecified),
+            blendMode = a.blendMode(),
+        )
+    }
+}
+
+/** The `text` argument as an [AnnotatedString], from a string or an annotated string. */
+private fun Args.annotatedText(name: String): AnnotatedString = when (val text = this[name]) {
+    is AnnotatedString -> text
+    null -> AnnotatedString("")
+    else -> AnnotatedString(text.toString())
 }
 
 private fun Registry.canvas() {
@@ -168,7 +211,12 @@ private fun Registry.geometry() {
         val intervals = (a["intervals"] as? FloatArray) ?: (a["intervals"] as? List<*>)?.map { (it as? Number)?.toFloat() ?: 0f }?.toFloatArray()
         PathEffect.dashPathEffect(intervals ?: floatArrayOf(10f, 10f), a.float("phase", 0f))
     }
-    member<PathEffect.Companion>("cornerPathEffect(radius)") { _, a -> PathEffect.cornerPathEffect(a.float("radius", 0f)) }
+    // Skia has no corner effect for a radius of 0 or less (e.g. an animation's first frame), and fails to wrap it: no
+    // effect is used instead, which draws the same.
+    member<PathEffect.Companion>("cornerPathEffect(radius)") { _, a ->
+        val radius = a.float("radius", 0f)
+        if (radius > 0f && radius.isFinite()) PathEffect.cornerPathEffect(radius) else null
+    }
     type<Offset>("Offset")
     type<Size>("Size")
     type<Path>("Path")

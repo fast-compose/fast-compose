@@ -151,6 +151,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -970,7 +972,7 @@ private fun Registry.materialCore() {
     )
     member<TextStyle>(
         "copy(color, fontSize, fontWeight, fontStyle, fontFamily, letterSpacing, background, textDecoration, " +
-            "textAlign, lineHeight)",
+            "textAlign, lineHeight, platformStyle, lineHeightStyle, lineBreak)",
     ) { style, a ->
         style.copy(
             color = a.color("color", style.color),
@@ -983,6 +985,8 @@ private fun Registry.materialCore() {
             textDecoration = a.typedOrNull<TextDecoration>("textDecoration") ?: style.textDecoration,
             textAlign = a.typed<TextAlign>("textAlign", style.textAlign),
             lineHeight = a.sp("lineHeight", style.lineHeight),
+            lineHeightStyle = a.typedOrNull<LineHeightStyle>("lineHeightStyle") ?: style.lineHeightStyle,
+            lineBreak = a.typed("lineBreak", style.lineBreak),
         )
     }
 }

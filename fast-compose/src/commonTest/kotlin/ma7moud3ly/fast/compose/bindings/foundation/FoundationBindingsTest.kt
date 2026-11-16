@@ -253,6 +253,22 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun bindingsFromRealProjects() {
+        val code = """
+            fun test() = listOf(
+                Locale.ROOT.toLanguageTag(),
+                TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false), lineBreak = LineBreak.Heading).lineBreak == LineBreak.Heading,
+                Color(0x80FF0000).compositeOver(Color.White) == Color(0x80FF0000).compositeOver(Color.White),
+                Modifier.composed { this } != Modifier,
+                PathEffect.cornerPathEffect(0f) == null,
+                PathEffect.cornerPathEffect(4f) != null,
+                Modifier.animateEnterExit().skipToLookaheadSize() == Modifier,
+            )
+        """
+        assertEquals(listOf("und", true, true, true, true, true, true), runClean(code))
+    }
+
+    @Test
     fun clickAndSizeModifiersWithOptions() {
         val code = """
             fun test() = listOf(

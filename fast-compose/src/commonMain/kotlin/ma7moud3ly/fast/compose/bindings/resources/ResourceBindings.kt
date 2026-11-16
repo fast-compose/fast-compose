@@ -247,14 +247,37 @@ private object StillLoading : Exception()
  * references in vectors (`@android:color/…`, `@color/…` from [colors], `?attr/…`) are replaced by literal colors first.
  */
 private fun decode(bytes: ByteArray, density: Density, colors: Map<String, String>): Result<Any> = runCatching {
-    val head = bytes.decodeToString(0, minOf(bytes.size, 512))
-    when {
-        "<vector" in head -> resolveColorReferences(bytes.decodeToString(), colors).encodeToByteArray()
+    when (xmlRoot(bytes)) {
+        "vector" -> resolveColorReferences(bytes.decodeToString(), colors).encodeToByteArray()
             .decodeToImageVector(density)
-        "<svg" in head -> throw UnsupportedOperationException("SVG images are not supported yet")
+        "svg" -> throw UnsupportedOperationException("SVG images are not supported yet")
         else -> bytes.decodeToImageBitmap()
     }
 }
+
+/**
+ * The root element of an XML file, e.g. `vector`, after its declaration and comments, such as a license header; null
+ * when [bytes] don't start like XML, e.g. a PNG.
+ */
+internal fun xmlRoot(bytes: ByteArray): String? {
+    val text = bytes.decodeToString(0, minOf(bytes.size, XML_HEAD_BYTES)).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+    if (!text.startsWith("<")) return null
+    var i = 0
+    while (true) {
+        i = text.indexOf('<', i)
+        if (i < 0) return null
+        i = when {
+            text.startsWith("<?", i) -> text.indexOf("?>", i).takeIf { it >= 0 }?.plus(2) ?: return null
+            text.startsWith("<!--", i) -> text.indexOf("-->", i).takeIf { it >= 0 }?.plus(3) ?: return null
+            text.startsWith("<!", i) -> text.indexOf('>', i).takeIf { it >= 0 }?.plus(1) ?: return null
+            else -> return XML_NAME.find(text, i + 1)?.takeIf { it.range.first == i + 1 }?.value
+        }
+    }
+}
+
+/** How much of a file [xmlRoot] reads; license comments are a few hundred bytes. */
+private const val XML_HEAD_BYTES = 16 * 1024
+private val XML_NAME = Regex("""[A-Za-z_][\w:.-]*""")
 
 /** A painter for [image], or a placeholder when it is missing. */
 @Composable

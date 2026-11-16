@@ -13,3 +13,32 @@ getInsetsController.view               # previews have no Android window
 setDecorFitsSystemWindows.window       # previews have no Android window
 setDecorFitsSystemWindows.decorFitsSystemWindows  # previews have no Android window
 enableEdgeToEdge.window                # previews have no Android window
+TextStyle.platformStyle                # platform styles change nothing in previews
+copy.platformStyle                     # platform styles change nothing in previews
+PlatformTextStyle.includeFontPadding   # Android-only, no effect in previews
+composed.inspectorInfo                 # for tools, not shown in previews
+BoundsTransform.transform              # previews don't animate shared elements
+sharedElement.sharedContentState                 # previews show one state, without shared-element animation
+sharedElement.animatedVisibilityScope            # previews show one state, without shared-element animation
+sharedElement.boundsTransform                    # previews show one state, without shared-element animation
+sharedElement.placeholderSize                    # previews show one state, without shared-element animation
+sharedElement.renderInOverlayDuringTransition    # previews show one state, without shared-element animation
+sharedElement.zIndexInOverlay                    # previews show one state, without shared-element animation
+sharedElement.clipInOverlayDuringTransition      # previews show one state, without shared-element animation
+sharedBounds.sharedContentState                  # previews show one state, without shared-element animation
+sharedBounds.animatedVisibilityScope             # previews show one state, without shared-element animation
+sharedBounds.enter                               # previews show one state, without shared-element animation
+sharedBounds.exit                                # previews show one state, without shared-element animation
+sharedBounds.boundsTransform                     # previews show one state, without shared-element animation
+sharedBounds.resizeMode                          # previews show one state, without shared-element animation
+sharedBounds.placeholderSize                     # previews show one state, without shared-element animation
+sharedBounds.renderInOverlayDuringTransition     # previews show one state, without shared-element animation
+sharedBounds.zIndexInOverlay                     # previews show one state, without shared-element animation
+sharedBounds.clipInOverlayDuringTransition       # previews show one state, without shared-element animation
+renderInSharedTransitionScopeOverlay.zIndexInOverlay   # previews draw no transition overlay
+renderInSharedTransitionScopeOverlay.renderInOverlay   # previews draw no transition overlay
+skipToLookaheadSize.enabled            # previews have no lookahead transition
+skipToLookaheadPosition.enabled        # previews have no lookahead transition
+animateEnterExit.enter                 # previews show the visible state
+animateEnterExit.exit                  # previews show the visible state
+animateEnterExit.label                 # previews show the visible state
