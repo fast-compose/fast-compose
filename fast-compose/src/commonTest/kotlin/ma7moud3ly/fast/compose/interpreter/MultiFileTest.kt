@@ -182,6 +182,27 @@ class MultiFileTest {
     }
 
     @Test
+    fun aNameImportedBackFromThePreviewedFileIsNotMissing() = runTest {
+        val helper = SourceFile("other/Helper.kt", "package app.other\n\nimport app.main.Scope\n\nfun helper() = Scope + 1")
+        // Like a host whose index doesn't serve the previewed file.
+        val sources = SourceProvider { packageName, name -> helper.takeIf { packageName == "app.other" && name == "helper" } }
+        val main = program(
+            """
+            package app.main
+
+            import app.other.helper
+
+            val Scope = 1
+
+            fun test() = helper()
+            """,
+        )
+        val loaded = SourceLoader(sources).load(main)
+        assertEquals(emptyList(), loaded.missing)
+        assertEquals(2, Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
+    }
+
+    @Test
     fun onlyReachedDeclarationsReportMissingNames() = runTest {
         val main = program(
             """
@@ -216,8 +237,10 @@ class MultiFileTest {
 
             import app.resources.Res
             import app.R
+            import app.R.string
+            import app.resources.Res.drawable
 
-            fun test() = Res.string.title + R.string.name
+            fun test() = Res.string.title + R.string.name + string.other + drawable.logo
             """,
         )
         assertEquals(emptyList(), SourceLoader(provider).load(main).missing)
@@ -306,6 +329,47 @@ class MultiFileTest {
         interpreter.call("test")
         // `user.name` on an Int is a missing member, reported where it is used: line 5 of Cards.kt.
         assertTrue(errors.first().toString().startsWith("Cards.kt:5:"), errors.toString())
+    }
+
+    @Test
+    fun anImportedClassNamedLikeTheFilesOwnFunction() = runTest {
+        val model = SourceFile("model/Category.kt", "package app.model\n\ndata class Category(val name: String)")
+        val sources = SourceProvider { packageName, name -> model.takeIf { packageName == "app.model" && name == "Category" } }
+        val main = program(
+            """
+            package app.ui
+
+            import app.model.Category
+
+            private fun Category(category: Category, big: Boolean) = category.name + big
+
+            fun test() = Category(category = Category(name = "desserts"), big = true)
+            """,
+        )
+        val loaded = SourceLoader(sources).load(main)
+        assertEquals("dessertstrue", Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
+    }
+
+    @Test
+    fun aNameDeclaredInTwoFilesLoadsBoth() = runTest {
+        val model = SourceFile("chat/Model.kt", "package app.chat\n\ndata class Message(val author: String, val text: String)")
+        val ui = SourceFile("chat/Ui.kt", "package app.chat\n\nfun Message(message: Message, isFirst: Boolean) = message.author + isFirst")
+        val sources = object : SourceProvider {
+            override suspend fun find(packageName: String, name: String) = ui
+            override suspend fun findAll(packageName: String, name: String) =
+                if (packageName == "app.chat" && name == "Message") listOf(ui, model) else emptyList()
+        }
+        val main = program(
+            """
+            package app.widget
+
+            import app.chat.Message
+
+            fun test() = Message(Message("ana", "hi"), true)
+            """,
+        )
+        val loaded = SourceLoader(sources).load(main)
+        assertEquals("anatrue", Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
     }
 
     @Test

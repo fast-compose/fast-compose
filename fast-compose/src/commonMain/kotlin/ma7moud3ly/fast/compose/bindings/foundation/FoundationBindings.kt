@@ -10,6 +10,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -539,7 +540,10 @@ private fun Registry.values() {
     }
 
     value("TextOverflow", TextOverflow.Companion)
-    constants<TextOverflow.Companion>("Clip" to TextOverflow.Clip, "Ellipsis" to TextOverflow.Ellipsis, "Visible" to TextOverflow.Visible)
+    constants<TextOverflow.Companion>(
+        "Clip" to TextOverflow.Clip, "Ellipsis" to TextOverflow.Ellipsis, "Visible" to TextOverflow.Visible,
+        "StartEllipsis" to TextOverflow.StartEllipsis, "MiddleEllipsis" to TextOverflow.MiddleEllipsis,
+    )
     value("FontStyle", FontStyle.Companion)
     constants<FontStyle.Companion>("Normal" to FontStyle.Normal, "Italic" to FontStyle.Italic)
     value("TextDecoration", TextDecoration.Companion)
@@ -675,6 +679,28 @@ internal fun Registry.graphics() {
 }
 
 internal fun Registry.animation() {
+    // `MutableTransitionState(false).apply { targetState = true }`, which `AnimatedVisibility(visibleState = …)` takes.
+    type<MutableTransitionState<*>>("MutableTransitionState")
+    function("MutableTransitionState(initialState)") { a -> MutableTransitionState(a["initialState"]) }
+    properties<MutableTransitionState<*>>(
+        "currentState" to { it.currentState },
+        "targetState" to { it.targetState },
+        "isIdle" to { it.isIdle },
+    )
+    @Suppress("UNCHECKED_CAST")
+    setter<MutableTransitionState<*>>("targetState") { state, value -> (state as MutableTransitionState<Any?>).targetState = value }
+    composable("AnimatedVisibility(visibleState: MutableTransitionState, modifier, enter, exit, label, content)") { a ->
+        val content = a.scopedContent<AnimatedVisibilityScope>()
+        @Suppress("UNCHECKED_CAST")
+        val state = a.typed<MutableTransitionState<*>>("visibleState", MutableTransitionState(true)) as MutableTransitionState<Boolean>
+        AnimatedVisibility(
+            visibleState = state,
+            modifier = a.modifier(),
+            enter = a.typed("enter", fadeIn() + expandIn()),
+            exit = a.typed("exit", shrinkOut() + fadeOut()),
+            label = a.string("label", "AnimatedVisibility"),
+        ) { content() }
+    }
     composable("AnimatedVisibility(visible, modifier, enter, exit, label, content)") { a ->
         val content = a.scopedContent<AnimatedVisibilityScope>()
         AnimatedVisibility(

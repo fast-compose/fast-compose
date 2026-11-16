@@ -81,8 +81,8 @@ replaced by the default.
 - Values: `string`, `int`, `long`, `float`, `boolean`, `dp`, `sp`, `color`, `typed<T>`, `modifier()`
 - Composable lambdas: `content`, `scopedContent<S>`, `content1`, `decorator` (wraps inner content, e.g. `decorationBox`)
 - Callbacks: `action`, `action1`, `action2`, `scopedAction<S>`, `function1`, `function2`, `composableFunction1`
-- Calculations: `calculation`, `scopedCalculation<S>`, `scopedFunction1<S>`, `scopedFunction2<S>`, `suspendBlock<S>`,
-  `suspendAction1`
+- Calculations: `calculation`, `scopedCalculation<S>`, `composableScopedCalculation<S>`, `scopedFunction1<S>`,
+  `scopedFunction2<S>`, `suspendBlock<S>`, `suspendAction1`
 - `receiver<T>()`: the implicit receiver at the call site, e.g. `RowScope` for `Modifier.weight(1f)`
 
 ## Writing a new pack

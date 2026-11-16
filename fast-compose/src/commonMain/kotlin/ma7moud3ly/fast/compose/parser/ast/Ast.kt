@@ -71,7 +71,14 @@ public data class AnnotationRef(val name: String, val args: List<Arg>)
 /** Type as written in source; the interpreter uses it only for hints and error messages. */
 public data class TypeRef(val text: String)
 
-public data class Param(val name: String, val type: TypeRef?, val default: Expr?, val isVararg: Boolean = false)
+/** A parameter; [annotations] such as `@PreviewParameter(…)`. */
+public data class Param(
+    val name: String,
+    val type: TypeRef?,
+    val default: Expr?,
+    val isVararg: Boolean = false,
+    val annotations: List<AnnotationRef> = emptyList(),
+)
 
 /** Function declaration; [body] is null for functions without a body (e.g. in interfaces). Expression bodies become a block with one [ReturnStmt]. */
 public data class FunDecl(
@@ -89,6 +96,8 @@ public data class FunDecl(
     val isExpect: Boolean = false,
     /** `actual fun`: the platform body of an `expect fun`, which holds the default values of its parameters. */
     val isActual: Boolean = false,
+    /** Names of its type parameters, e.g. `T` in `fun <T : Any> T.show()`; their bounds are not kept. */
+    val typeParameters: List<String> = emptyList(),
 ) : Decl {
     public fun hasAnnotation(name: String): Boolean = annotations.any { it.name == name }
 }
@@ -106,7 +115,16 @@ public data class ClassDecl(
     val members: List<Decl>,
     val initBlocks: List<Block>,
     val isPrivate: Boolean = false,
+    val secondaryConstructors: List<SecondaryConstructor> = emptyList(),
+    /** Annotations on the class, e.g. the `@Preview`s of a multi-preview `annotation class`. */
+    val annotations: List<AnnotationRef> = emptyList(),
 ) : Decl
+
+/**
+ * A secondary constructor, `constructor(…) : this(…) { … }`. [delegation] holds the arguments of `this(…)`; it is null
+ * without a delegation or for `super(…)`. [body] is null without a body.
+ */
+public data class SecondaryConstructor(val params: List<Param>, val delegation: List<Arg>?, val body: Block?)
 
 public data class EnumEntry(val name: String, val args: List<Arg>)
 
@@ -189,7 +207,8 @@ public data class DoubleLit(override val id: Int, override val span: Span, val v
 public data class CharLit(override val id: Int, override val span: Span, val value: Char) : Expr
 public data class BoolLit(override val id: Int, override val span: Span, val value: Boolean) : Expr
 public data class NullLit(override val id: Int, override val span: Span) : Expr
-public data class ThisExpr(override val id: Int, override val span: Span) : Expr
+/** `this`, or `this@label` for the receiver of an enclosing labeled lambda, function or class. */
+public data class ThisExpr(override val id: Int, override val span: Span, val label: String? = null) : Expr
 
 /** Placeholder for input the lexer already reported as invalid. */
 public data class ErrorExpr(override val id: Int, override val span: Span) : Expr
@@ -229,13 +248,17 @@ public data class Call(
 
 public data class Index(override val id: Int, override val span: Span, val receiver: Expr, val indices: List<Expr>) : Expr
 
-/** Lambda; a destructured parameter `(a, b)` is named `_` in [params] and its names are in [destructured] by index. */
+/**
+ * Lambda; a destructured parameter `(a, b)` is named `_` in [params] and its names are in [destructured] by index.
+ * [label] is an explicit label, `name@{ … }`, for `return@name`.
+ */
 public data class Lambda(
     override val id: Int,
     override val span: Span,
     val params: List<String>,
     val body: Block,
     val destructured: Map<Int, List<String>> = emptyMap(),
+    val label: String? = null,
 ) : Expr
 
 /** `try { } catch (e: Type) { } finally { }`; usable as an expression. */

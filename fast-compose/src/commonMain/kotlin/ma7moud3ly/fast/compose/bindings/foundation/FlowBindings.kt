@@ -3,6 +3,8 @@ package ma7moud3ly.fast.compose.bindings.foundation
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -174,6 +176,24 @@ internal fun Registry.flowExtras() {
     suspendFunction("withContext(context, block)") { a -> coroutineScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
     suspendFunction("coroutineScope(block)") { a -> coroutineScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
     suspendFunction("supervisorScope(block)") { a -> supervisorScope { a.suspendCalculation<CoroutineScope>("block").invoke(this) } }
+    // Previews can't block a thread on every platform: the block runs at once, and its result is used when it finishes
+    // without suspending, as fake repositories do; otherwise it is cancelled and gives a stand-in.
+    function("runBlocking(context, block)") { a ->
+        val block = a.suspendCalculation<CoroutineScope>("block")
+        var result: Any? = null
+        var done = false
+        val job = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
+            result = block()
+            done = true
+        }
+        if (done) {
+            result
+        } else {
+            job.cancel()
+            a.warn("runBlocking's block suspended, so its result isn't available in previews")
+            null
+        }
+    }
     jobs()
 
     paging()

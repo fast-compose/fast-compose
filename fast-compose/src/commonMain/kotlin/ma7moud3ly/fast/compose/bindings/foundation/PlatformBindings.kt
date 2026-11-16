@@ -33,6 +33,9 @@ internal object KotlinClock
 /** `java.util.Locale` and Compose's `Locale`, which share the name. */
 internal object Locales
 
+/** `Locale.ROOT`, the locale without a language. */
+private val rootLocale by lazy { Locale("und") }
+
 /** API level previews report in `Build.VERSION.SDK_INT`: below 31 (S), so Material You dynamic colors stay off. */
 internal const val PREVIEW_SDK_INT = 30
 
@@ -79,7 +82,9 @@ internal fun Registry.platform() {
     member<Locales>("current") { _, _ -> Locale.current }
     member<Locales>("getDefault()") { _, _ -> Locale.current }
     function("Locale(languageTag)") { a -> Locale(a.string("languageTag", "en")) }
-    constants<Locales>("ENGLISH" to Locale("en"), "US" to Locale("en-US"), "ROOT" to Locale("und"))
+    constants<Locales>("ENGLISH" to Locale("en"), "US" to Locale("en-US"))
+    // Built on first use: Compose warns about the `und` language tag, which would print whenever a registry is built.
+    member<Locales>("ROOT") { _, _ -> rootLocale }
     properties<Locale>(
         "language" to { it.language },
         "region" to { it.region },

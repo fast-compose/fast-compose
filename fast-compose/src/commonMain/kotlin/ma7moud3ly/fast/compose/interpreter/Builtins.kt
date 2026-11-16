@@ -45,19 +45,39 @@ internal class Builtins(private val interpreter: Interpreter) {
 
     // ---------- Globals ----------
 
+    /** The values of `max(…)` or `min(…)`: positional, or named `a`, `b` and `c` as in `max(a = x, b = y)`. */
+    private fun comparedValues(args: CallArgs): List<Any?> =
+        args.positional + listOf("a", "b", "c").filter { it in args.named }.map { args.named[it] }
+
+    /** The value of [values] that [keeps] against each other, e.g. the largest; a call without values fails. */
+    private fun extremeOf(name: String, values: List<Any?>, keeps: (Int) -> Boolean): Any? {
+        if (values.isEmpty()) throw InterpreterException("$name() needs values to compare")
+        return values.reduce { x, y ->
+            val c = Operators.compare(x, y) as? Int ?: throw InterpreterException("Cannot compare ${typeName(x)} with ${typeName(y)}")
+            if (keeps(c)) x else y
+        }
+    }
+
     fun globalValue(name: String): Any = when (name) {
         "PI" -> PI
         "E" -> E
         "Unit" -> Unit
+        // For their constants, e.g. `Float.NaN` and `Int.MAX_VALUE`.
+        "Float" -> Float.Companion
+        "Double" -> Double.Companion
+        "Int" -> Int.Companion
+        "Long" -> Long.Companion
         else -> Unresolved
     }
 
     fun global(name: String, args: CallArgs): Any? {
         val a = args.positional
         return when (name) {
+            // Sequences are lists here: previews take few values, e.g. a `PreviewParameterProvider`'s `values`.
+            "sequenceOf",
             "listOf", "arrayOf", "floatArrayOf", "intArrayOf", "longArrayOf", "doubleArrayOf", "booleanArrayOf", "charArrayOf" -> a
             "mutableListOf", "arrayListOf" -> a.toMutableList()
-            "emptyList", "emptyArray" -> emptyList<Any?>()
+            "emptyList", "emptyArray", "emptySequence" -> emptyList<Any?>()
             "listOfNotNull" -> a.filterNotNull()
             "setOf" -> a.toSet()
             "mutableSetOf" -> a.toMutableSet()
@@ -71,8 +91,9 @@ internal class Builtins(private val interpreter: Interpreter) {
             "List" -> List(int(a[0])) { call(args.fn(), it) }
             "MutableList" -> MutableList(int(a[0])) { call(args.fn(), it) }
             "println", "print" -> interpreter.log(a.firstOrNull()?.let { str(it) } ?: "")
-            "maxOf" -> a.reduce { x, y -> if ((Operators.compare(x, y) as Int) >= 0) x else y }
-            "minOf" -> a.reduce { x, y -> if ((Operators.compare(x, y) as Int) <= 0) x else y }
+            // `max` and `min` also compare Compose values such as `Dp`, e.g. `max(240.dp, height)`.
+            "maxOf", "max" -> extremeOf(name, comparedValues(args)) { it >= 0 }
+            "minOf", "min" -> extremeOf(name, comparedValues(args)) { it <= 0 }
             "abs" -> when (val v = a[0]) {
                 is Int -> abs(v); is Long -> abs(v); is Float -> abs(v); else -> abs(double(v))
             }
@@ -173,6 +194,36 @@ internal class Builtins(private val interpreter: Interpreter) {
     // ---------- Properties ----------
 
     fun property(receiver: Any?, name: String): Any? = when (receiver) {
+        Float.Companion -> when (name) {
+            "NaN" -> Float.NaN
+            "POSITIVE_INFINITY" -> Float.POSITIVE_INFINITY
+            "NEGATIVE_INFINITY" -> Float.NEGATIVE_INFINITY
+            "MAX_VALUE" -> Float.MAX_VALUE
+            "MIN_VALUE" -> Float.MIN_VALUE
+            else -> Unresolved
+        }
+
+        Double.Companion -> when (name) {
+            "NaN" -> Double.NaN
+            "POSITIVE_INFINITY" -> Double.POSITIVE_INFINITY
+            "NEGATIVE_INFINITY" -> Double.NEGATIVE_INFINITY
+            "MAX_VALUE" -> Double.MAX_VALUE
+            "MIN_VALUE" -> Double.MIN_VALUE
+            else -> Unresolved
+        }
+
+        Int.Companion -> when (name) {
+            "MAX_VALUE" -> Int.MAX_VALUE
+            "MIN_VALUE" -> Int.MIN_VALUE
+            else -> Unresolved
+        }
+
+        Long.Companion -> when (name) {
+            "MAX_VALUE" -> Long.MAX_VALUE
+            "MIN_VALUE" -> Long.MIN_VALUE
+            else -> Unresolved
+        }
+
         is CharSequence -> when (name) {
             "length" -> receiver.length
             "indices" -> receiver.indices
@@ -421,6 +472,18 @@ internal class Builtins(private val interpreter: Interpreter) {
         "toDouble" -> n.toDouble()
         "toChar" -> n.toInt().toChar()
         "roundToInt" -> if (n is Float) n.roundToInt() else n.toDouble().roundToInt()
+        "floorDiv" -> (a[0] as? Number)?.let { d -> if (n is Long || d is Long) n.toLong().floorDiv(d.toLong()) else n.toInt().floorDiv(d.toInt()) }
+            ?: throw InterpreterException("floorDiv needs a number")
+        "mod" -> (a[0] as? Number)?.let { d ->
+            when {
+                n is Double || n is Float || d is Double || d is Float -> n.toDouble().mod(d.toDouble())
+                n is Long || d is Long -> n.toLong().mod(d.toLong())
+                else -> n.toInt().mod(d.toInt())
+            }
+        } ?: throw InterpreterException("mod needs a number")
+        "isNaN" -> n.toDouble().isNaN()
+        "isInfinite" -> n.toDouble().isInfinite()
+        "isFinite" -> n.toDouble().isFinite()
         "pow" -> if (n is Float) n.pow(double(a[0]).toFloat()) else n.toDouble().pow(double(a[0]))
         "coerceIn" -> coerce(coerce(n, a[0], atLeast = true), a[1], atLeast = false)
         "coerceAtLeast" -> coerce(n, a[0], atLeast = true)
@@ -530,6 +593,15 @@ internal class Builtins(private val interpreter: Interpreter) {
                 ) x else y
             }
 
+            "maxOf", "maxOfOrNull", "minOf", "minOfOrNull" -> {
+                val wantsMax = name.startsWith("max")
+                val best = list.map { call(fn, it) }.reduceOrNull { x, y ->
+                    val c = Operators.compare(x, y) as Int
+                    if (if (wantsMax) c >= 0 else c <= 0) x else y
+                }
+                if (best == null && !name.endsWith("OrNull")) throw InterpreterException("NoSuchElementException: Collection is empty")
+                best
+            }
             "maxByOrNull" -> list.maxByOrNull { call(fn, it) as Comparable<Any> }
             "minByOrNull" -> list.minByOrNull { call(fn, it) as Comparable<Any> }
             "sorted" -> list.sortedWith { x, y -> Operators.compare(x, y) as Int }
@@ -554,6 +626,10 @@ internal class Builtins(private val interpreter: Interpreter) {
             "takeLast" -> list.takeLast(int(a[0]))
             "dropLast" -> list.dropLast(int(a[0]))
             "distinct" -> list.distinct()
+            "distinctBy" -> list.distinctBy { call(fn, it) }
+            "indexOfFirst" -> list.indexOfFirst { predicate(fn, it) }
+            "indexOfLast" -> list.indexOfLast { predicate(fn, it) }
+            "partition" -> list.partition { predicate(fn, it) }
             "shuffled" -> list.shuffled()
             "random" -> list.random()
             "chunked" -> list.chunked(int(a[0]))
@@ -579,6 +655,12 @@ internal class Builtins(private val interpreter: Interpreter) {
             "plus" -> list + (a[0] as? Iterable<Any?> ?: listOf(a[0]))
             "minus" -> list - (a[0] as? Iterable<Any?>)?.toSet().orEmpty().ifEmpty { setOf(a[0]) }
             "toList" -> list.toList()
+            "asSequence" -> list
+            "fold" -> list.fold(args.named["initial"] ?: a.getOrNull(0)) { acc, item -> call(fn, acc, item) }
+            "foldIndexed" -> list.foldIndexed(args.named["initial"] ?: a.getOrNull(0)) { i, acc, item -> call(fn, i, acc, item) }
+            "runningFold" -> list.runningFold(args.named["initial"] ?: a.getOrNull(0)) { acc, item -> call(fn, acc, item) }
+            "reduce" -> list.reduce { acc, item -> call(fn, acc, item) }
+            "reduceOrNull" -> list.reduceOrNull { acc, item -> call(fn, acc, item) }
             "toMutableList" -> list.toMutableList()
             "toSet" -> list.toSet()
             "toSortedSet" -> list.sortedWith(comparator(a.firstOrNull())).toCollection(LinkedHashSet())

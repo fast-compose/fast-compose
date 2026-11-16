@@ -97,6 +97,9 @@ public class Args internal constructor(
     /** Optional composable slot, e.g. `label: (@Composable () -> Unit)?`; null when it was not passed. */
     public fun contentOrNull(name: String): (@Composable () -> Unit)? = if (lambda(name) == null) null else content(name)
 
+    /** [value], a composable lambda from a list such as `Layout(contents = listOf(a, b))`, as content. */
+    public fun contentOf(value: Any?): @Composable () -> Unit = { interpreter.invokeComposable(value, NoReceiver, emptyList()) }
+
     /** Composable slot with one parameter, e.g. Scaffold's `content: @Composable (PaddingValues) -> Unit`. */
     public fun content1(name: String = "content"): @Composable (Any?) -> Unit {
         val fn = lambda(name) ?: return {}
@@ -185,6 +188,12 @@ public class Args internal constructor(
     public fun composableFunction1(name: String): @Composable (Any?) -> Any? {
         val fn = lambda(name) ?: return { null }
         return { interpreter.invokeComposable(fn, NoReceiver, listOf(it)) }
+    }
+
+    /** Composable lambda with a receiver that returns a value, e.g. `Modifier.composed`'s `@Composable Modifier.() -> Modifier`. */
+    public fun <S> composableScopedCalculation(name: String): @Composable S.() -> Any? {
+        val fn = lambda(name) ?: return { null }
+        return { interpreter.invokeComposable(fn, this, emptyList()) }
     }
 
     /** Lambda with a receiver scope that returns a value, e.g. DisposableEffect's `DisposableEffectScope.() -> DisposableEffectResult`. */

@@ -49,7 +49,8 @@ private fun Registry.icons() {
         if (name in autoMirrored) member<Icons.AutoMirrored.Outlined>(name) { _, _ -> icon() }
     }
     fallbackMember<Icons.Filled> { _, name, a -> placeholder(name, a) }
-    fallbackMember<Icons.Outlined> { _, name, a -> placeholder(name, a) }
+    // An outlined icon that isn't bundled shows the filled one, like the other styles.
+    fallbackMember<Icons.Outlined> { _, name, a -> filledIcons[name]?.invoke() ?: placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Filled> { _, name, a -> placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Outlined> { _, name, a -> placeholder(name, a) }
     // Rounded, Sharp and TwoTone icons are not bundled; the Filled icon of the same name stands in for them.
@@ -63,9 +64,10 @@ private fun Registry.icons() {
             member<Icons.AutoMirrored.TwoTone>(name) { _, _ -> icon() }
         }
     }
-    fallbackMember<Icons.Rounded> { _, name, a -> placeholder(name, a) }
-    fallbackMember<Icons.Sharp> { _, name, a -> placeholder(name, a) }
-    fallbackMember<Icons.TwoTone> { _, name, a -> placeholder(name, a) }
+    // A name bundled only as an outlined icon shows that one.
+    fallbackMember<Icons.Rounded> { _, name, a -> outlinedIcons[name]?.invoke() ?: placeholder(name, a) }
+    fallbackMember<Icons.Sharp> { _, name, a -> outlinedIcons[name]?.invoke() ?: placeholder(name, a) }
+    fallbackMember<Icons.TwoTone> { _, name, a -> outlinedIcons[name]?.invoke() ?: placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Rounded> { _, name, a -> placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Sharp> { _, name, a -> placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.TwoTone> { _, name, a -> placeholder(name, a) }

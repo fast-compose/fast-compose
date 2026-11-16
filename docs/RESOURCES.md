@@ -90,7 +90,8 @@ Variants follow the preview's `@Preview` settings and screen density:
 
 ## Formats
 
-- **Images:** PNG, JPEG, WebP, BMP and vector drawable XML. SVG is not supported yet. In vectors, `@color/…`,
+- **Images:** PNG, JPEG, WebP, BMP and vector drawable XML. SVG is not supported yet. Vector files are recognized by
+  their root element, also after an XML declaration or a license comment. In vectors, `@color/…`,
   `@android:color/…` and theme attributes (`?attr/…`, drawn black) are replaced by colors.
 - **Strings:** `strings.xml`, with `%s`, `%d`, `%.2f` and `%1$s` arguments.
 - **Colors:** `colors.xml`, read by `colorResource(R.color.x)` and by vector drawables.

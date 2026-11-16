@@ -151,6 +151,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -647,8 +649,10 @@ private fun progressOf(a: Args): (() -> Float)? {
 
 @Composable
 private fun LinearProgress(a: Args) {
-    val progress = progressOf(a)
-    val modifier = a.modifier()
+    // A modifier as the first argument means the indeterminate overload, `LinearProgressIndicator(Modifier…)`.
+    val first = a["progress"] as? Modifier
+    val progress = if (first != null) null else progressOf(a)
+    val modifier = first ?: a.modifier()
     val color = a.color("color", ProgressIndicatorDefaults.linearColor)
     val trackColor = a.color("trackColor", ProgressIndicatorDefaults.linearTrackColor)
     val strokeCap = a.typed("strokeCap", ProgressIndicatorDefaults.LinearStrokeCap)
@@ -661,8 +665,9 @@ private fun LinearProgress(a: Args) {
 
 @Composable
 private fun CircularProgress(a: Args) {
-    val progress = progressOf(a)
-    val modifier = a.modifier()
+    val first = a["progress"] as? Modifier
+    val progress = if (first != null) null else progressOf(a)
+    val modifier = first ?: a.modifier()
     val color = a.color("color", ProgressIndicatorDefaults.circularColor)
     val strokeWidth = a.dp("strokeWidth", ProgressIndicatorDefaults.CircularStrokeWidth)
     if (progress == null) {
@@ -832,6 +837,15 @@ private fun Registry.materialCore() {
             typography = a.typed("typography", MaterialTheme.typography),
         ) { content() }
     }
+    // Material 3 Expressive's theme: previews don't animate, so the motion scheme is left out.
+    composable("MaterialExpressiveTheme(colorScheme, motionScheme, shapes, typography, content)") { a ->
+        val content = a.content()
+        MaterialTheme(
+            colorScheme = a.typed("colorScheme", MaterialTheme.colorScheme),
+            shapes = a.typed("shapes", MaterialTheme.shapes),
+            typography = a.typed("typography", MaterialTheme.typography),
+        ) { content() }
+    }
     composable("Scaffold(modifier, topBar, bottomBar, snackbarHost, floatingActionButton, floatingActionButtonPosition, containerColor, contentColor, contentWindowInsets, content)") { a ->
         val content = a.content1()
         Scaffold(
@@ -970,7 +984,7 @@ private fun Registry.materialCore() {
     )
     member<TextStyle>(
         "copy(color, fontSize, fontWeight, fontStyle, fontFamily, letterSpacing, background, textDecoration, " +
-            "textAlign, lineHeight)",
+            "textAlign, lineHeight, platformStyle, lineHeightStyle, lineBreak)",
     ) { style, a ->
         style.copy(
             color = a.color("color", style.color),
@@ -983,6 +997,8 @@ private fun Registry.materialCore() {
             textDecoration = a.typedOrNull<TextDecoration>("textDecoration") ?: style.textDecoration,
             textAlign = a.typed<TextAlign>("textAlign", style.textAlign),
             lineHeight = a.sp("lineHeight", style.lineHeight),
+            lineHeightStyle = a.typedOrNull<LineHeightStyle>("lineHeightStyle") ?: style.lineHeightStyle,
+            lineBreak = a.typed("lineBreak", style.lineBreak),
         )
     }
 }

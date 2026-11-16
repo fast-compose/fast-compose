@@ -50,12 +50,14 @@ import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -89,6 +91,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.withLink
@@ -128,6 +131,12 @@ internal fun Registry.uiExtras() {
     value("LocalClipboard", LocalClipboard)
     function("mutableStateSetOf(vararg elements)") { a -> mutableStateSetOf<Any?>().apply { addAll(a.varargs("elements")) } }
     member<Color>("toArgb()") { color, _ -> color.toArgb() }
+    member<Color>("compositeOver(background)") { color, a -> color.compositeOver(a.color("background", Color.White)) }
+    member<Modifier>("composed(inspectorInfo, factory)") { m, a ->
+        // The factory runs in composition, with the modifier it extends as `this`.
+        val factory = a.composableScopedCalculation<Modifier>("factory")
+        m.composed { factory(this) as? Modifier ?: this }
+    }
     function("lerp(start, stop, fraction)") { a ->
         val fraction = a.float("fraction", 0f)
         when (val start = a["start"]) {
@@ -152,6 +161,15 @@ private fun Registry.densityConversions() {
     member<Dp>("toSp()") { dp, a -> with(a.density()) { dp.toSp() } }
     member<TextUnit>("toPx()") { sp, a -> with(a.density()) { sp.toPx() } }
     member<TextUnit>("toDp()") { sp, a -> with(a.density()) { sp.toDp() } }
+    // compose-ui-util's packing of two values into a Long, as value classes such as a scrollbar's state store them.
+    function("packFloats(val1, val2)") { a ->
+        (a.float("val1", 0f).toRawBits().toLong() shl 32) or (a.float("val2", 0f).toRawBits().toLong() and 0xFFFFFFFFL)
+    }
+    function("unpackFloat1(value)") { a -> Float.fromBits((a.long("value", 0L) ushr 32).toInt()) }
+    function("unpackFloat2(value)") { a -> Float.fromBits((a.long("value", 0L) and 0xFFFFFFFFL).toInt()) }
+    function("packInts(val1, val2)") { a -> (a.int("val1", 0).toLong() shl 32) or (a.int("val2", 0).toLong() and 0xFFFFFFFFL) }
+    function("unpackInt1(value)") { a -> (a.long("value", 0L) shr 32).toInt() }
+    function("unpackInt2(value)") { a -> (a.long("value", 0L) and 0xFFFFFFFFL).toInt() }
     member<TextUnit>("roundToPx()") { sp, a -> with(a.density()) { sp.roundToPx() } }
     member<Number>("em") { n, _ -> n.toFloat().em }
 }
@@ -224,6 +242,15 @@ private fun Registry.textExtras() {
         val link = a.typedOrNull<LinkAnnotation>("link")
         if (link == null) builder.block() else builder.withLink(link) { block() ?: Unit }
     }
+    // Inside composition, the block is composable code, e.g. `withStyle(…) { append(stringResource(…)) }`.
+    composableMember<AnnotatedString.Builder>("withLink(link, block)") { builder, a ->
+        val block = a.composableScopedCalculation<AnnotatedString.Builder>("block")
+        val link = a.typedOrNull<LinkAnnotation>("link")
+        val index = link?.let { builder.pushLink(it) }
+        val result = builder.block() ?: Unit
+        index?.let { builder.pop(it) }
+        result
+    }
     member<AnnotatedString.Builder>("pushLink(link)") { builder, a ->
         a.typedOrNull<LinkAnnotation>("link")?.let { builder.pushLink(it) } ?: Unit
     }
@@ -239,6 +266,8 @@ private fun Registry.textExtras() {
         "textAlign" to { it.textAlign },
         "textDecoration" to { it.textDecoration },
         "background" to { it.background },
+        "lineHeightStyle" to { it.lineHeightStyle },
+        "lineBreak" to { it.lineBreak },
     )
     member<TextStyle>("merge(other)") { style, a -> style.merge(a.typedOrNull<TextStyle>("other")) }
 
@@ -256,6 +285,13 @@ private fun Registry.textExtras() {
         "Ltr" to TextDirection.Ltr, "Rtl" to TextDirection.Rtl, "Content" to TextDirection.Content,
         "ContentOrLtr" to TextDirection.ContentOrLtr, "ContentOrRtl" to TextDirection.ContentOrRtl,
         "Unspecified" to TextDirection.Unspecified,
+    )
+
+    type<LineBreak>("LineBreak")
+    value("LineBreak", LineBreak.Companion)
+    constants<LineBreak.Companion>(
+        "Simple" to LineBreak.Simple, "Heading" to LineBreak.Heading, "Paragraph" to LineBreak.Paragraph,
+        "Unspecified" to LineBreak.Unspecified,
     )
 
     type<LineHeightStyle>("LineHeightStyle")

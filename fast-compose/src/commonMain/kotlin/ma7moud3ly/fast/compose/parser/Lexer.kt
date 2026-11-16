@@ -66,6 +66,7 @@ public class Lexer(private val source: String) {
             c == '/' && peek() == '/' -> lineComment()
             c == '/' && peek() == '*' -> blockComment()
             c.isAsciiDigit() -> number(c)
+            c == '.' && peek().isAsciiDigit() && !endsExpression(tokens.lastOrNull()) -> fraction()
             c == '"' -> stringStart()
             c == '\'' -> charLiteral()
             c == '`' -> backtickIdentifier()
@@ -135,6 +136,30 @@ public class Lexer(private val source: String) {
             else -> add(INT)
         }
     }
+
+    /**
+     * A floating-point literal without a leading digit, such as `.8f` or `.5`, after its `.`. Its value gets the `0`
+     * Kotlin implies, `0.8f`.
+     */
+    private fun fraction() {
+        digits()
+        if ((peek() == 'e' || peek() == 'E') &&
+            (peek(1).isAsciiDigit() || ((peek(1) == '+' || peek(1) == '-') && peek(2).isAsciiDigit()))
+        ) {
+            advance()
+            if (peek() == '+' || peek() == '-') advance()
+            digits()
+        }
+        if (peek() == 'f' || peek() == 'F') {
+            advance()
+            add(FLOAT, "0" + current())
+        } else {
+            add(DOUBLE, "0" + current())
+        }
+    }
+
+    /** True when [token] can end an expression, so a `.` after it is a member access, not a number like `.5`. */
+    private fun endsExpression(token: Token?): Boolean = token != null && token.type in expressionEnds
 
     private inline fun radixNumber(isDigit: (Char) -> Boolean) {
         advance()
@@ -405,6 +430,10 @@ public class Lexer(private val source: String) {
     private fun Char.isHexDigit() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
     private companion object {
+        val expressionEnds = setOf(
+            IDENTIFIER, INT, LONG, FLOAT, DOUBLE, CHAR, STRING_END, RPAREN, RBRACKET, RBRACE, THIS, NULL, TRUE, FALSE,
+            NOT_NULL, PLUS_PLUS, MINUS_MINUS,
+        )
         val keywords = mapOf(
             "fun" to FUN, "val" to VAL, "var" to VAR, "class" to CLASS, "object" to OBJECT,
             "if" to IF, "else" to ELSE, "when" to WHEN, "for" to FOR, "while" to WHILE, "do" to DO,

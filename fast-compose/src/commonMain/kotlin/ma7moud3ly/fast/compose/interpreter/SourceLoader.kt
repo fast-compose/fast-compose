@@ -19,6 +19,12 @@ public fun interface SourceProvider {
     public suspend fun find(packageName: String, name: String): SourceFile?
 
     /**
+     * Every file in [packageName] that declares the top-level [name], e.g. a `data class Message` and a
+     * `fun Message(…)` in two files of a package; by default the one [find] gives.
+     */
+    public suspend fun findAll(packageName: String, name: String): List<SourceFile> = listOfNotNull(find(packageName, name))
+
+    /**
      * True if [packageName] belongs to the project, false for library packages. Names imported from library packages
      * are never looked up with [find] and never reported as missing: they come from bindings, or from [findLibrary].
      * By default every package counts as the project's, except [SourceLoader.DEFAULT_LIBRARY_PACKAGES].
@@ -87,7 +93,7 @@ public class SourceLoader(
         val found = LinkedHashMap<String, Program>()
         val missing = LinkedHashSet<MissingReference>()
         val diagnostics = mutableMapOf<String, List<Diagnostic>>()
-        val lookups = mutableMapOf<Pair<String, String>, SourceFile?>()
+        val lookups = mutableMapOf<Pair<String, String>, List<SourceFile>>()
         val reached = mutableSetOf<Pair<String?, Int>>()
         val queue = ArrayDeque<Pair<Program, Decl>>()
 
@@ -113,32 +119,40 @@ public class SourceLoader(
             }
             for (name in namesToFind(program, decl)) {
                 val own = program.declarations.filter { nameOf(it) == name }
-                if (own.isNotEmpty()) {
-                    reach(program, own)
-                    continue
-                }
+                if (own.isNotEmpty()) reach(program, own)
                 if (name in RESOURCE_CLASSES) continue
-                for (candidate in candidates(program, name)) {
+                // A file's own declaration hides its package and star imports, but not explicit imports of the same name:
+                // a `fun SearchCategory` of the file and an imported `data class SearchCategory` are both used.
+                val candidates = candidates(program, name).filter { own.isEmpty() || it.isImport }
+                for (candidate in candidates) {
                     val key = candidate.packageName to candidate.name
-                    val file = if (key in lookups) {
-                        lookups[key]
-                    } else if (candidate.isLibrary) {
-                        provider.findLibrary(candidate.packageName, candidate.name).also { lookups[key] = it }
-                    } else {
-                        provider.find(candidate.packageName, candidate.name).also { lookups[key] = it }
+                    val files = lookups.getOrPut(key) {
+                        if (candidate.isLibrary) listOfNotNull(provider.findLibrary(candidate.packageName, candidate.name))
+                        else provider.findAll(candidate.packageName, candidate.name)
+                    }.filter { it.path != program.path }
+                    // The previewed file declares it, e.g. a `LocalScope` that another file imports back from it.
+                    val inMain = program !== main && candidate.packageName == main.packageName &&
+                        main.declarations.any { nameOf(it) == candidate.name }
+                    if (inMain) {
+                        reach(main, main.declarations.filter { nameOf(it) == candidate.name })
+                        if (!candidate.isImport) break
+                        continue
                     }
-                    if (file == null || file.path == program.path) {
+                    if (files.isEmpty()) {
                         if (candidate.isImport && !candidate.isLibrary) missing += MissingReference(name, candidate.packageName, program.path)
                         continue
                     }
-                    val dependency = if (file.path == main.path) main else found[file.path] ?: run {
-                        val (fileProgram, errors) = parse(file)
-                        found[file.path] = fileProgram
-                        if (errors.isNotEmpty()) diagnostics[file.path] = errors
-                        fileProgram
+                    for (file in files) {
+                        val dependency = if (file.path == main.path) main else found[file.path] ?: run {
+                            val (fileProgram, errors) = parse(file)
+                            found[file.path] = fileProgram
+                            if (errors.isNotEmpty()) diagnostics[file.path] = errors
+                            fileProgram
+                        }
+                        reach(dependency, dependency.declarations.filter { nameOf(it) == candidate.name })
                     }
-                    reach(dependency, dependency.declarations.filter { nameOf(it) == candidate.name })
-                    break
+                    // Every explicit import of the name is followed; otherwise the first place that declares it wins.
+                    if (!candidate.isImport) break
                 }
             }
         }
@@ -158,11 +172,12 @@ public class SourceLoader(
 
     /** Where [name] may be declared, in Kotlin's lookup order; empty for names from library packages. */
     private suspend fun candidates(program: Program, name: String): List<Candidate> {
-        val import = program.imports.firstOrNull { !it.isStar && it.visibleName == name }
-        if (import != null) {
-            val packageName = import.declarationPackage
-            if (isBound(packageName)) return emptyList()
-            return listOf(Candidate(packageName, import.declarationName, true, isLibrary = isLibrary(packageName)))
+        val imports = program.imports.filter { !it.isStar && it.visibleName == name }
+        if (imports.isNotEmpty()) {
+            // Nested classes of the resource classes, `import app.R.string`, come from the resource bindings too.
+            return imports.filter { it.declarationName !in RESOURCE_CLASSES && !isBound(it.declarationPackage) }.map { import ->
+                Candidate(import.declarationPackage, import.declarationName, true, isLibrary = isLibrary(import.declarationPackage))
+            }
         }
         return buildList {
             add(Candidate(program.packageName, name, false))

@@ -45,6 +45,8 @@ private class ReferenceWalker {
         when (stmt) {
             is FunDecl -> {
                 declared += stmt.name
+                // Annotations may be multi-preview annotation classes of the project, e.g. `@DevicePreviews`.
+                stmt.annotations.forEach(::annotation)
                 type(stmt.receiver)
                 type(stmt.returnType)
                 stmt.params.forEach(::param)
@@ -52,6 +54,7 @@ private class ReferenceWalker {
             }
             is ClassDecl -> {
                 declared += stmt.name
+                stmt.annotations.forEach(::annotation)
                 stmt.constructorParams.forEach { param(it.param) }
                 stmt.superTypes.forEach(::type)
                 stmt.enumEntries.forEach { entry ->
@@ -60,6 +63,11 @@ private class ReferenceWalker {
                 }
                 stmt.members.forEach(::stmt)
                 stmt.initBlocks.forEach(::block)
+                stmt.secondaryConstructors.forEach { constructor ->
+                    constructor.params.forEach(::param)
+                    constructor.delegation?.forEach { expr(it.value) }
+                    constructor.body?.let(::block)
+                }
             }
             is PropertyDecl -> {
                 declared += stmt.name
@@ -95,7 +103,13 @@ private class ReferenceWalker {
 
     fun block(block: Block) = block.statements.forEach(::stmt)
 
+    fun annotation(annotation: AnnotationRef) {
+        used += annotation.name
+        annotation.args.forEach { expr(it.value) }
+    }
+
     fun param(param: Param) {
+        param.annotations.forEach { it.args.forEach { arg -> expr(arg.value) } }
         declared += param.name
         type(param.type)
         param.default?.let(::expr)

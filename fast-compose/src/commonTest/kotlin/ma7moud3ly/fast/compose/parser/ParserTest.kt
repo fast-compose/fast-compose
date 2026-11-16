@@ -259,6 +259,10 @@ class ParserTest {
         assertTrue(KotlinParser.hasPreviews("@androidx.compose.ui.tooling.preview.Preview @Composable fun A() {}"))
         assertTrue(!KotlinParser.hasPreviews("// @Preview\nval text = \"@Preview\""))
         assertTrue(!KotlinParser.hasPreviews("import androidx.compose.ui.tooling.preview.Preview\nfun A() {}"))
+        // Multi-preview annotations, which hosts confirm by loading.
+        assertTrue(KotlinParser.hasPreviews("@DevicePreviews @Composable fun A() {}"))
+        assertTrue(KotlinParser.hasPreviews("@PreviewLightDark @Composable fun A() {}"))
+        assertTrue(!KotlinParser.hasPreviews("@Composable fun A(@PreviewParameter(P::class) a: Int) {}"))
     }
 
     @Test
@@ -422,7 +426,11 @@ class ParserTest {
             fun Local() {}
             """.trimIndent(),
         )
-        assertEquals(setOf("User", "List", "Item", "format", "Column", "Card", "Row", "helper"), program.externalNames())
+        // Annotations count, since they may be multi-preview annotation classes of the project.
+        assertEquals(
+            setOf("Composable", "User", "List", "Item", "format", "Column", "Card", "Row", "helper"),
+            program.externalNames(),
+        )
     }
 
     @Test

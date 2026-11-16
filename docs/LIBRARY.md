@@ -80,8 +80,15 @@ fun FastComposePreview(
     modifier: Modifier = Modifier,
     registry: Registry = rememberFullRegistry(),
     resources: ResourceProvider = LocalResourceProvider.current,
+    frameSize: DpSize? = null,
+    zoom: Float = 1f,
 )
 ```
+
+- `frameSize` gives previews without a `@Preview` size a device's size, e.g. `DpSize(411.dp, 891.dp)`: they wrap their
+  content up to it, and the list is centered and scrolls both ways.
+- `zoom` scales the frames, e.g. `0.5f` to fit a phone in a small panel. It changes their density, so previews lay out
+  at their own size, text stays sharp and clicks land where they should. Labels keep their size.
 
 Each preview is drawn in its own frame with a label, inside a light or dark Material theme. `@Preview` parameters
 work as in Android Studio:
@@ -99,6 +106,39 @@ work as in Android Studio:
 Only `@Composable` functions with `@Preview` are shown. A function with several `@Preview` annotations is shown once
 for each.
 
+**Multi-preview annotations.** An annotation class annotated with `@Preview`s shows each of them, also through other
+multi-preview annotations, and from other files the previewed file imports:
+
+```kotlin
+@Preview(name = "phone", device = "spec:width=411dp,height=891dp")
+@Preview(name = "tablet", device = "spec:width=1280dp,height=800dp")
+annotation class DevicePreviews
+
+@DevicePreviews
+@Composable
+fun HomePreview() { … }   // "HomePreview - phone" and "HomePreview - tablet"
+```
+
+AndroidX's `@PreviewLightDark`, `@PreviewScreenSizes` and `@PreviewFontScale` work too; `@PreviewDynamicColors` shows
+one preview, since dynamic colors need Android's wallpaper.
+
+**Preview parameters.** A parameter annotated `@PreviewParameter(Provider::class, limit = n)` shows the preview once
+for each of the provider's `values`, up to `limit`. The provider is a class of the project:
+
+```kotlin
+class NamesProvider : PreviewParameterProvider<String> {
+    override val values = sequenceOf("Ana", "Bo")
+}
+
+@Preview
+@Composable
+fun GreetingPreview(@PreviewParameter(NamesProvider::class) name: String) { … }
+```
+
+Hosts with their own preview list get the same previews from `interpreter.previews(program)`: a `PreviewEntry` per
+preview, with its function, `PreviewConfig` and arguments, rendered with
+`interpreter.Render(entry.function, entry.arguments)`.
+
 ## BasicComposePreview
 
 Like `FastComposePreview`, but with the foundation API only: layouts, `Text`, state, modifiers, drawing and
@@ -115,6 +155,8 @@ fun BasicComposePreview(
     code: ComposeCode,
     modifier: Modifier = Modifier,
     registry: Registry = rememberBasicRegistry(),
+    frameSize: DpSize? = null,
+    zoom: Float = 1f,
 )
 ```
 

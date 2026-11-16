@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -16,6 +17,12 @@ import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.constrain
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.offset
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.unit.Constraints
 import ma7moud3ly.fast.compose.interpreter.Args
 import ma7moud3ly.fast.compose.interpreter.Registry
@@ -59,10 +66,28 @@ private fun Registry.customLayouts() {
     type<Measurable>("Measurable")
     type<Placeable>("Placeable")
     type<Constraints>("Constraints")
+    member<Constraints>("offset(horizontal, vertical)") { c, a -> c.offset(a.int("horizontal", 0), a.int("vertical", 0)) }
+    member<Constraints>("constrain(otherConstraints: Constraints)") { c, a -> c.constrain(a.typed("otherConstraints", c)) }
+    member<Constraints>("constrain(size: IntSize)") { c, a -> c.constrain(a.typed("size", IntSize.Zero)) }
+    member<Constraints>("constrainWidth(width)") { c, a -> c.constrainWidth(a.int("width", 0)) }
+    member<Constraints>("constrainHeight(height)") { c, a -> c.constrainHeight(a.int("height", 0)) }
     composable("Layout(content, modifier, measurePolicy)") { a ->
         Layout(content = a.content(), modifier = a.modifier(), measurePolicy = a.measurePolicy())
     }
+    // `MeasurePolicy { measurables, constraints -> … }`: the lambda itself, which `Layout` measures with.
+    function("MeasurePolicy(measure)") { a -> a.lambda("measure") }
+    // Several contents, measured as one list of measurables each.
+    composable("Layout(contents: List, modifier, measurePolicy)") { a ->
+        val contents = a.typed<List<*>>("contents", emptyList<Any?>()).map { a.contentOf(it) }
+        val block = a.scopedFunction2<MeasureScope>("measurePolicy")
+        Layout(contents = contents, modifier = a.modifier()) { measurables, constraints ->
+            block(measurables, constraints) as? MeasureResult ?: layout(0, 0) {}
+        }
+    }
     member<Measurable>("measure(constraints)") { measurable, a -> measurable.measure(a.typed("constraints", Constraints())) }
+    // `Modifier.layoutId(id)` marks a child; a custom layout reads it back from the measurable.
+    member<Modifier>("layoutId(layoutId)") { m, a -> a["layoutId"]?.let { m.layoutId(it) } ?: m }
+    properties<Measurable>("layoutId" to { it.layoutId })
     properties<Placeable>("width" to { it.width }, "height" to { it.height })
     member<MeasureScope>("layout(width, height, alignmentLines, placementBlock)") { scope, a ->
         val block = a.scopedAction<Placeable.PlacementScope>("placementBlock")

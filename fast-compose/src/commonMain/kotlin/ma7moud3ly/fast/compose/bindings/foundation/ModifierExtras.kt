@@ -43,6 +43,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.grid.LazyGridItemScope
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridItemScope
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -76,6 +78,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -291,7 +294,12 @@ private fun Registry.drawModifiers() {
 
 private fun Registry.layoutCallbacks() {
     type<IntSize>("IntSize")
+    function("IntSize(width, height)") { a -> IntSize(a.int("width", 0), a.int("height", 0)) }
     properties<IntSize>("width" to { it.width }, "height" to { it.height })
+    // `DpSize` is a value class: library code can't construct it from two `Dp`s, so it is bound.
+    type<DpSize>("DpSize")
+    function("DpSize(width, height)") { a -> DpSize(a.dp("width", 0.dp), a.dp("height", 0.dp)) }
+    properties<DpSize>("width" to { it.width }, "height" to { it.height })
     type<LayoutCoordinates>("LayoutCoordinates")
     properties<LayoutCoordinates>("size" to { it.size }, "isAttached" to { it.isAttached })
     member<Modifier>("onSizeChanged(onSizeChanged)") { m, a ->
@@ -345,17 +353,18 @@ private fun Registry.lazyExtras() {
         scope.stickyHeader(key = a["key"]?.let(::lazyKey), contentType = a["contentType"]) { index -> content(index) }
     }
     member<Modifier>("animateItem(fadeInSpec, placementSpec, fadeOutSpec)") { m, a ->
-        val scope = a.receiver<LazyItemScope>()
-        if (scope == null) {
-            m.also { a.report("animateItem() must be used inside a lazy list item") }
-        } else {
-            with(scope) {
-                m.animateItem(
-                    fadeInSpec = a.finiteSpecOr("fadeInSpec", spring(stiffness = Spring.StiffnessMediumLow)),
-                    placementSpec = a.finiteSpecOr("placementSpec", spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)),
-                    fadeOutSpec = a.finiteSpecOr("fadeOutSpec", spring(stiffness = Spring.StiffnessMediumLow)),
-                )
-            }
+        val fadeIn = a.finiteSpecOr("fadeInSpec", spring<Float>(stiffness = Spring.StiffnessMediumLow))
+        val placement = a.finiteSpecOr("placementSpec", spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold))
+        val fadeOut = a.finiteSpecOr("fadeOutSpec", spring<Float>(stiffness = Spring.StiffnessMediumLow))
+        // Items of lists, grids and staggered grids each have their own scope.
+        val list = a.receiver<LazyItemScope>()
+        val grid = a.receiver<LazyGridItemScope>()
+        val staggered = a.receiver<LazyStaggeredGridItemScope>()
+        when {
+            list != null -> with(list) { m.animateItem(fadeIn, placement, fadeOut) }
+            grid != null -> with(grid) { m.animateItem(fadeIn, placement, fadeOut) }
+            staggered != null -> with(staggered) { m.animateItem(fadeIn, placement, fadeOut) }
+            else -> m.also { a.report("animateItem() must be used inside a lazy list or grid item") }
         }
     }
 }

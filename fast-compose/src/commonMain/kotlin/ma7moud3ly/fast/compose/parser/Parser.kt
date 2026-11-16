@@ -49,6 +49,7 @@ public class Parser(private val tokens: List<Token>) {
                     parseAnnotation() // file annotations such as @file:OptIn(...)
                     continue
                 }
+                if (skipTypeAlias()) continue
                 declarations += parseDeclarationOrNull() ?: throw error("Expected a declaration, found ${describe(cur())}")
             } catch (_: ParseException) {
                 // Already reported as a diagnostic; parsing resumes at the next declaration.
@@ -145,7 +146,7 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun parseFunction(start: Token, modifiers: Modifiers): FunDecl {
         expect(FUN, "'fun'")
-        skipTypeParameters()
+        val typeParameters = parseTypeParameterNames()
         val (receiver, name) = parseReceiverAndName()
         val params = parseParams()
         val returnType = if (match(COLON)) parseType() else null
@@ -162,7 +163,34 @@ public class Parser(private val tokens: List<Token>) {
             isPrivate = "private" in modifiers.words,
             isExpect = "expect" in modifiers.words,
             isActual = "actual" in modifiers.words,
+            typeParameters = typeParameters,
         )
+    }
+
+    /** Names of `<T, reified R : Any>` after `fun`; the bounds are skipped. */
+    private fun parseTypeParameterNames(): List<String> {
+        if (!at(LT)) return emptyList()
+        val end = scanTypeArguments(pos)
+        if (end < 0) throw error("Invalid type parameters")
+        val names = mutableListOf<String>()
+        var depth = 0
+        for (i in pos until end) {
+            val t = tokens[i]
+            when (t.type) {
+                LT -> depth++
+                GT -> depth--
+                IDENTIFIER -> if (depth == 1) {
+                    val previous = tokens[i - 1]
+                    val isModifier = t.text in typeParameterModifiers && tokens[i + 1].type == IDENTIFIER
+                    val startsParameter = previous.type == LT || previous.type == COMMA ||
+                        previous.type == IDENTIFIER && previous.text in typeParameterModifiers
+                    if (startsParameter && !isModifier) names += t.value
+                }
+                else -> Unit
+            }
+        }
+        pos = end
+        return names
     }
 
     private fun expressionBody(): Block {
@@ -294,18 +322,18 @@ public class Parser(private val tokens: List<Token>) {
         val params = mutableListOf<Param>()
         while (!at(RPAREN)) {
             val modifiers = parseModifiers()
-            params += parseParam(isVararg = "vararg" in modifiers.words)
+            params += parseParam(isVararg = "vararg" in modifiers.words, modifiers.annotations)
             if (!match(COMMA)) break
         }
         expect(RPAREN, "')'")
         params
     }
 
-    private fun parseParam(isVararg: Boolean): Param {
+    private fun parseParam(isVararg: Boolean, annotations: List<AnnotationRef> = emptyList()): Param {
         val name = expect(IDENTIFIER, "a parameter name").value
         val type = if (match(COLON)) parseType() else null
         val default = if (match(ASSIGN)) parseExpression() else null
-        return Param(name, type, default, isVararg)
+        return Param(name, type, default, isVararg, annotations)
     }
 
     /** Parses a class, object or interface; with [anonymous], the class of an `object : … { … }` expression. */
@@ -327,7 +355,10 @@ public class Parser(private val tokens: List<Token>) {
         }
         skipTypeParameters()
 
-        if (isSoft("constructor") || (at(AT) && kind != ClassKind.OBJECT)) {
+        // `constructor`, with annotations or a visibility: `internal constructor(…)`.
+        if (isSoft("constructor") || (at(AT) && kind != ClassKind.OBJECT) ||
+            (cur().text in visibilityWords && peekAfter().text == "constructor")
+        ) {
             parseModifiers()
             if (isSoft("constructor")) advance()
         }
@@ -350,6 +381,7 @@ public class Parser(private val tokens: List<Token>) {
         var entries = emptyList<EnumEntry>()
         val members = mutableListOf<Decl>()
         val initBlocks = mutableListOf<Block>()
+        val secondaryConstructors = mutableListOf<SecondaryConstructor>()
         if (nextNonNewline().type == LBRACE) {
             skipNewlines()
             expect(LBRACE, "'{'")
@@ -362,6 +394,8 @@ public class Parser(private val tokens: List<Token>) {
                         if (isSoft("init") && peekAfter().type == LBRACE) {
                             advance()
                             initBlocks += parseBlock()
+                        } else if (startsSecondaryConstructor()) {
+                            secondaryConstructors += parseSecondaryConstructor()
                         } else {
                             members += parseDeclarationOrNull() ?: throw error("Expected a member declaration, found ${describe(cur())}")
                         }
@@ -373,7 +407,62 @@ public class Parser(private val tokens: List<Token>) {
                 expect(RBRACE, "'}'")
             }
         }
-        return ClassDecl(id(), spanFrom(start), name, kind, constructorParams, superTypes, entries, members, initBlocks, "private" in modifiers.words)
+        return ClassDecl(
+            id(), spanFrom(start), name, kind, constructorParams, superTypes, entries, members, initBlocks,
+            "private" in modifiers.words, secondaryConstructors, modifiers.annotations,
+        )
+    }
+
+    /** True when a secondary `constructor(…)` starts here, after its annotations and modifiers. */
+    private fun startsSecondaryConstructor(): Boolean {
+        val saved = pos
+        parseModifiers()
+        val starts = isSoft("constructor") && peekAfter().type == LPAREN
+        pos = saved
+        return starts
+    }
+
+    /** Parses `constructor(…) : this(…) { … }`; the delegation and the body are optional. */
+    private fun parseSecondaryConstructor(): SecondaryConstructor {
+        parseModifiers()
+        advance() // constructor
+        val params = parseParams()
+        var delegation: List<Arg>? = null
+        if (nextNonNewline().type == COLON) {
+            skipNewlines()
+            advance()
+            skipNewlines()
+            val target = advance()
+            val args = parseCallArgs()
+            if (target.type == THIS) delegation = args
+        }
+        val body = if (nextNonNewline().type == LBRACE) {
+            skipNewlines()
+            parseBlock()
+        } else {
+            null
+        }
+        return SecondaryConstructor(params, delegation, body)
+    }
+
+    /**
+     * Skips a top-level `typealias Name<T> = Type`, with its annotations and modifiers, and returns true; returns
+     * false, at the same position, when none starts here. Types are not checked, so aliases need nothing at runtime.
+     */
+    private fun skipTypeAlias(): Boolean {
+        val saved = pos
+        parseModifiers()
+        if (!isSoft("typealias")) {
+            pos = saved
+            return false
+        }
+        advance()
+        expect(IDENTIFIER, "a type alias name")
+        skipTypeParameters()
+        expect(ASSIGN, "'='")
+        skipNewlines()
+        parseType()
+        return true
     }
 
     private fun parseConstructorParams(): List<PropertyParam> = inParens {
@@ -433,7 +522,8 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun skipType() {
         while (at(AT)) parseAnnotation()
-        if (isSoft("suspend") && peekAfter().type == LPAREN) advance()
+        // `suspend () -> Unit`, and with a receiver, `suspend CoroutineScope.() -> Unit`.
+        if (isSoft("suspend") && peekAfter().type in setOf(LPAREN, IDENTIFIER)) advance()
         if (at(LPAREN)) {
             inParens {
                 advance()
@@ -723,12 +813,21 @@ public class Parser(private val tokens: List<Token>) {
                 }
                 LPAREN -> {
                     val args = parseCallArgs()
-                    val lambda = if (at(LBRACE)) parseLambda() else null
+                    val lambda = when {
+                        at(LBRACE) -> parseLambda()
+                        labeledLambdaAt() -> parseLabeledLambda()
+                        else -> null
+                    }
                     Call(id(), span(), expr, args, lambda)
                 }
                 LBRACE -> {
                     if (!isCallable(expr)) return expr
                     Call(id(), span(), expr, emptyList(), parseLambda())
+                }
+                // A labeled trailing lambda, `items.forEach each@{ … }`.
+                IDENTIFIER -> {
+                    if (!isCallable(expr) || !labeledLambdaAt()) return expr
+                    Call(id(), span(), expr, emptyList(), parseLabeledLambda())
                 }
                 LT -> {
                     if (expr !is Ident && expr !is Member) return expr
@@ -764,6 +863,20 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
+    /** True when a labeled lambda, `name@{ … }`, starts at the current token. */
+    private fun labeledLambdaAt(): Boolean {
+        val t = cur()
+        return t.type == IDENTIFIER && tokens[pos + 1].type == AT && tokens[pos + 1].start == t.end &&
+            tokens[pos + 2].type == LBRACE
+    }
+
+    /** Parses `name@{ … }`, a lambda that `return@name` returns from. */
+    private fun parseLabeledLambda(): Lambda {
+        val label = advance().value
+        advance()
+        return parseLambda().copy(label = label)
+    }
+
     /** A trailing lambda attaches only to names, member accesses and calls without one. */
     private fun isCallable(expr: Expr): Boolean =
         expr is Ident || expr is Member || (expr is Call && expr.trailingLambda == null)
@@ -781,11 +894,11 @@ public class Parser(private val tokens: List<Token>) {
             }
             FLOAT -> {
                 advance()
-                FloatLit(id(), spanFrom(t), t.text.replace("_", "").dropLast(1).toFloat())
+                FloatLit(id(), spanFrom(t), t.value.replace("_", "").dropLast(1).toFloat())
             }
             DOUBLE -> {
                 advance()
-                DoubleLit(id(), spanFrom(t), t.text.replace("_", "").toDouble())
+                DoubleLit(id(), spanFrom(t), t.value.replace("_", "").toDouble())
             }
             CHAR -> {
                 advance()
@@ -801,8 +914,22 @@ public class Parser(private val tokens: List<Token>) {
             }
             THIS -> {
                 advance()
-                skipLabel()
-                ThisExpr(id(), spanFrom(t))
+                val label = skipLabel()
+                ThisExpr(id(), spanFrom(t), label)
+            }
+            // A collection literal, `[a, b]`, which Kotlin allows in annotation arguments: a list here.
+            LBRACKET -> {
+                val items = inParens {
+                    advance()
+                    val list = mutableListOf<Arg>()
+                    while (!at(RBRACKET)) {
+                        list += Arg(null, parseExpression())
+                        if (!match(COMMA)) break
+                    }
+                    expect(RBRACKET, "']'")
+                    list
+                }
+                Call(id(), spanFrom(t), Ident(id(), spanFrom(t), "listOf"), items, null)
             }
             STRING_START -> parseString()
             IDENTIFIER -> {
@@ -812,6 +939,7 @@ public class Parser(private val tokens: List<Token>) {
                         advance()
                         ThrowExpr(id(), spanFrom(t), parseExpression())
                     }
+                    labeledLambdaAt() -> parseLabeledLambda()
                     else -> {
                         advance()
                         Ident(id(), spanFrom(t), t.value)
@@ -948,11 +1076,16 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
-    /** Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. */
+    /**
+     * Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. Parameters may span lines and
+     * end with a trailing comma.
+     */
     private fun hasLambdaParams(): Boolean {
         var i = pos
         if (tokens[i].type == ARROW) return true
         while (true) {
+            while (tokens[i].type == NEWLINE) i++
+            if (tokens[i].type == ARROW && i > pos) return true
             if (tokens[i].type == LPAREN) {
                 i++
                 while (tokens[i].type != RPAREN) {
@@ -966,6 +1099,7 @@ public class Parser(private val tokens: List<Token>) {
             }
             i++
             if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
+            while (tokens[i].type == NEWLINE) i++
             when (tokens[i].type) {
                 COMMA -> i++
                 ARROW -> return true
@@ -997,7 +1131,9 @@ public class Parser(private val tokens: List<Token>) {
     /** Parses lambda parameters; a destructured parameter `(a, b)` is named `_` and its names go to [destructured]. */
     private fun parseLambdaParams(destructured: MutableMap<Int, List<String>>): List<String> {
         val params = mutableListOf<String>()
-        while (!at(ARROW)) {
+        while (true) {
+            skipNewlines()
+            if (at(ARROW)) break
             if (at(LPAREN)) {
                 destructured[params.size] = parseDestructuringNames()
                 params += "_"
@@ -1005,8 +1141,10 @@ public class Parser(private val tokens: List<Token>) {
                 params += expect(IDENTIFIER, "a parameter name").value
             }
             if (match(COLON)) parseType()
+            skipNewlines()
             if (!match(COMMA)) break
         }
+        skipNewlines()
         expect(ARROW, "'->'")
         return params
     }
@@ -1085,6 +1223,8 @@ public class Parser(private val tokens: List<Token>) {
                     if (!match(ELSE)) {
                         do {
                             skipNewlines()
+                            // A trailing comma may end the conditions: `A, B, -> …`.
+                            if (conditions.isNotEmpty() && at(ARROW)) break
                             conditions += parseWhenCondition()
                         } while (match(COMMA))
                     }
@@ -1255,11 +1395,14 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun startsDeclaration(t: Token) = when (t.type) {
         FUN, VAL, VAR, CLASS, OBJECT, AT -> true
-        IDENTIFIER -> t.text in modifierWords || t.text == "interface" || t.text == "import"
+        IDENTIFIER -> t.text in modifierWords || t.text == "interface" || t.text == "import" || t.text == "typealias"
         else -> false
     }
 
     private companion object {
+        val visibilityWords = setOf("private", "public", "internal", "protected")
+        val typeParameterModifiers = setOf("reified", "in", "out")
+
         /** Modifiers that may come before a property accessor. */
         val accessorModifiers = setOf("private", "public", "internal", "protected", "inline", "external")
         val modifierWords = setOf(
@@ -1278,8 +1421,9 @@ public class Parser(private val tokens: List<Token>) {
 public object KotlinParser {
     /**
      * True if [source] has a `@Preview` annotation, written `@Preview` or qualified like
-     * `@androidx.compose.ui.tooling.preview.Preview`, without parsing it. Comments, strings and imports don't count.
-     * Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
+     * `@androidx.compose.ui.tooling.preview.Preview`, or one that may be a multi-preview annotation: a name with
+     * `Preview` in it, such as `@DevicePreviews` or `@PreviewLightDark`. Checked without parsing; comments, strings and
+     * imports don't count. Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
      */
     public fun hasPreviews(source: String): Boolean {
         val tokens = Lexer(source).tokenize()
@@ -1292,7 +1436,7 @@ public object KotlinParser {
                 if (tokens.getOrNull(j + 1)?.type != TokenType.DOT) break
                 j += 2
             }
-            if (name == "Preview") return true
+            if (name != null && "Preview" in name && name != "PreviewParameter") return true
         }
         return false
     }

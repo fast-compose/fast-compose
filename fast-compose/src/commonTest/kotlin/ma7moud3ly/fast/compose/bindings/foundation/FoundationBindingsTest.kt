@@ -253,6 +253,93 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun bindingsFromRealProjects() {
+        val code = """
+            fun test() = listOf(
+                Locale.ROOT.toLanguageTag(),
+                TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false), lineBreak = LineBreak.Heading).lineBreak == LineBreak.Heading,
+                Color(0x80FF0000).compositeOver(Color.White) == Color(0x80FF0000).compositeOver(Color.White),
+                Modifier.composed { this } != Modifier,
+                PathEffect.cornerPathEffect(0f) == null,
+                PathEffect.cornerPathEffect(4f) != null,
+                Modifier.animateEnterExit().skipToLookaheadSize() == Modifier,
+            )
+        """
+        assertEquals(listOf("und", true, true, true, true, true, true), runClean(code))
+    }
+
+    @Test
+    fun runBlockingRunsABlockThatDoesNotSuspend() {
+        assertEquals(2, runClean("fun test() = runBlocking { listOf(1, 2).size }"))
+    }
+
+    @Test
+    fun constraintsOffsetAndConstrain() {
+        val code = """
+            fun test(): List<Any?> {
+                val c = Constraints(maxWidth = 100, maxHeight = 50)
+                val inner = c.offset(-20, -10)
+                return listOf(
+                    inner.maxWidth,
+                    inner.maxHeight,
+                    c.constrainWidth(150),
+                    c.constrainHeight(20),
+                    c.constrain(Constraints(minWidth = 200)).minWidth,
+                    c.constrain(IntSize(300, 10)) == IntSize(100, 10),
+                )
+            }
+        """
+        assertEquals(listOf(80, 40, 100, 20, 100, true), runClean(code))
+    }
+
+    @Test
+    fun textFieldState() {
+        val code = """
+            fun test(): List<Any?> {
+                val state = TextFieldState("hi")
+                state.setTextAndPlaceCursorAtEnd("hello")
+                val text = state.text
+                state.clearText()
+                return listOf(
+                    text,
+                    state.text,
+                    TextFieldLineLimits.SingleLine == TextFieldLineLimits.SingleLine,
+                    TextFieldLineLimits.MultiLine(maxHeightInLines = 3) != null,
+                    InputTransformation { } != null,
+                )
+            }
+        """
+        assertEquals(listOf("hello", "", true, true, true), runClean(code))
+    }
+
+    @Test
+    fun mutableTransitionState() {
+        val code = """
+            fun test(): List<Any?> {
+                val state = MutableTransitionState(false).apply { targetState = true }
+                return listOf(state.currentState, state.targetState, state.isIdle)
+            }
+        """
+        assertEquals(listOf(false, true, false), runClean(code))
+    }
+
+    @Test
+    fun sizeConstructors() {
+        assertEquals(true, runClean("fun test() = DpSize(400.dp, 900.dp).width == 400.dp && IntSize(2, 3).height == 3"))
+    }
+
+    @Test
+    fun packedValuesAndDpComparisons() {
+        val code = """
+            fun test(): List<Any?> {
+                val packed = packFloats(1.5f, 2f)
+                return listOf(unpackFloat1(packed), unpackFloat2(packed), max(2.dp, 5.dp) == 5.dp, min(2.dp, 5.dp) == 2.dp)
+            }
+        """
+        assertEquals(listOf(1.5f, 2f, true, true), runClean(code))
+    }
+
+    @Test
     fun clickAndSizeModifiersWithOptions() {
         val code = """
             fun test() = listOf(

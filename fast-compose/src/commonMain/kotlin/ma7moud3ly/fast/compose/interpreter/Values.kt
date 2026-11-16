@@ -1,6 +1,10 @@
 package ma7moud3ly.fast.compose.interpreter
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableDoubleState
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableLongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import ma7moud3ly.fast.compose.parser.ast.ClassDecl
@@ -62,7 +66,15 @@ internal class Delegated(private val delegate: Any?) {
     fun set(value: Any?) {
         if (delegate is StandIn) return
         if (delegate !is MutableState<*>) throw InterpreterException("Property delegate is read-only")
-        (delegate as MutableState<Any?>).value = value
+        // Primitive states take only numbers of their type; another value, such as a stand-in, leaves them unchanged.
+        val number = value as? Number
+        when (delegate) {
+            is MutableLongState -> number?.let { delegate.longValue = it.toLong() }
+            is MutableIntState -> number?.let { delegate.intValue = it.toInt() }
+            is MutableFloatState -> number?.let { delegate.floatValue = it.toFloat() }
+            is MutableDoubleState -> number?.let { delegate.doubleValue = it.toDouble() }
+            else -> (delegate as MutableState<Any?>).value = value
+        }
     }
 }
 
@@ -71,7 +83,8 @@ internal class Delegated(private val delegate: Any?) {
  * error names its real cause.
  */
 internal class LazyField(private val initializer: () -> Any?) {
-    private var isComputing = false
+    internal var isComputing = false
+        private set
     private var failure: InterpreterException? = null
 
     fun compute(name: String): Any? {
@@ -103,6 +116,9 @@ public abstract class UserValue internal constructor(public val decl: ClassDecl)
     internal val fields = mutableMapOf<String, Any?>()
 
     internal fun hasField(name: String) = name in fields
+
+    /** True while the lazy property [name] is being initialized, e.g. while its initializer calls a function of its name. */
+    internal fun isInitializing(name: String): Boolean = (fields[name] as? LazyField)?.isComputing == true
 
     internal fun read(name: String): Any? = when (val value = initialized(name)) {
         is Delegated -> value.get()
@@ -151,8 +167,18 @@ public class EnumValue internal constructor(decl: ClassDecl, public val name: St
     override fun toString(): String = name
 }
 
-/** A lambda with its captured scope. [label] is the name of the call it was passed to, for `return@label`. */
-public class LambdaValue internal constructor(internal val lambda: Lambda, internal val closure: Env, internal val label: String?) {
+/**
+ * A lambda with its captured scope. [label] is the name of the call it was passed to, for `return@label`.
+ * [receiverType] is the receiver of the function type it was passed as, e.g. `RowScope` for a parameter
+ * `content: RowScope.() -> Unit`; [boundReceiver] is the implicit receiver a call without one gives it.
+ */
+public class LambdaValue internal constructor(
+    internal val lambda: Lambda,
+    internal val closure: Env,
+    internal val label: String?,
+    internal val receiverType: String? = null,
+    internal val boundReceiver: Any? = null,
+) {
     override fun toString(): String = "(lambda)"
 }
 
@@ -170,8 +196,8 @@ public class FunctionRef internal constructor(internal val decl: FunDecl, intern
  * `Type::name`, a reference to a member of a type such as `Char::lowercase` or `Item::title`: a function whose first
  * argument is the receiver. [env] is where the reference was written, for resolving extensions.
  */
-internal class MemberRef(val type: String, val name: String, val env: Env) {
-    override fun toString(): String = "$type::$name"
+internal class MemberRef(val type: String, val name: String, val env: Env, val bound: Any? = NoReceiver) {
+    override fun toString(): String = if (bound === NoReceiver) "$type::$name" else "::$name"
 }
 
 /**
